@@ -1,0 +1,7 @@
+beautifulsoup4==4.12.3
+comicapi==3.2.0
+pillow==11.0.0
+rarfile==4.2
+requests==2.32.3
+tqdm==4.67.0
+tqdm-loggable==0.2.0
