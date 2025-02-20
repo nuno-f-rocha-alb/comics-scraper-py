@@ -20,6 +20,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 RUN pwd
 
+RUN rm -fr logs && rm -fr comics
+
 RUN mkdir logs && mkdir comics
 
 RUN chmod 755 */

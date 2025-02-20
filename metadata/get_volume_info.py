@@ -47,3 +47,27 @@ def get_volume_info(series_name, target_year=None):
         logging.warning(f"No volume found for series name: {series_name}")
 
     return None
+
+def get_volume_info_by_id(volume_id):
+    """Fetch volume details using the volume ID."""
+    volume_url = f"{BASE_URL}/volume/4050-{volume_id}/"
+    params = {
+        "api_key": API_KEY,
+        "format": "json",
+    }
+    response = requests.get(volume_url, headers=HEADERS_APP, params=params)
+
+    if response.status_code == 403:
+        logging.error("Access denied. Check your API key and User-Agent.")
+        return None
+
+    data = response.json()
+
+    if "results" in data:
+        volume = data["results"]
+        publisher = volume.get("publisher", {}).get("name", "")
+        issue_count = volume.get("count_of_issues", 0)
+        logging.info(f"Found volume details for volume ID {volume_id}.")
+        return publisher, issue_count
+    logging.warning(f"No details found for volume ID {volume_id}.")
+    return None

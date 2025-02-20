@@ -26,10 +26,10 @@ def extract_year_from_comic_title(title):
     return year_match.group(1) if year_match else None # Return the year if found
 
 
-def create_series_directory(publisher, series_name, year):
+def create_series_directory(entry):
     """Creates a directory path based on publisher, series title, and year."""
-    publisher_dir = str(os.path.join(COMICS_BASE_DIR, publisher))
-    series_dir = os.path.join(publisher_dir, f"{series_name} ({year})")
+    publisher_dir = str(os.path.join(COMICS_BASE_DIR, entry[0]))
+    series_dir = os.path.join(publisher_dir, f"{entry[1]} ({entry[2]})")
     os.makedirs(series_dir, exist_ok=True)
     logging.info(f"Created directory {series_dir}.")
     return str(series_dir)
@@ -38,7 +38,6 @@ def create_series_directory(publisher, series_name, year):
 def normalize_title(title):
     """Normalize the title by stripping common prefixes and converting to lowercase."""
     common_prefixes = ["the ", "a ", "an "]  # Add other prefixes as needed
-    title = title.lower()
     for prefix in common_prefixes:
         if title.startswith(prefix):
             title = title[len(prefix):]

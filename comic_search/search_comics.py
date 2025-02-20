@@ -7,13 +7,13 @@ from config import *
 from util import extract_year_from_comic_title
 
 
-def search_comics(series_name, target_year):
+def search_comics(entry):
     """Iterates through pages of search results for a series and returns a list of available comics ordered by issue."""
     page = 1
     comics = []
 
     while True:
-        search_url = f"{BASE_SEARCH_URL.format(page)}{series_name.replace(' ', '+')}"
+        search_url = f"{BASE_SEARCH_URL.format(page)}{entry[1].replace(' ', '+')}"
         response = requests.get(search_url, headers=HEADERS)
 
         if response.status_code == 404 or "No Results Found" in response.text:
@@ -35,7 +35,7 @@ def search_comics(series_name, target_year):
 
             year = extract_year_from_comic_title(comic_title)
 
-            if year is None or year < target_year:
+            if year is None or year < entry[2]:
                 continue # Skip comics with date ranges or those with a year less than the target year
 
             comics.append((comic_title, comic_url, issue_number, year))

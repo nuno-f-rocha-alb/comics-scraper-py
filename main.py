@@ -11,14 +11,21 @@ def main():
     start_time = time.time()
     series_list = read_series_list(SERIES_FILE_PATH)
 
-    for publisher, series_name, year in series_list:
-        logging.info(f"Searching for comics in series: {series_name} by {publisher}")
-        available_comics = search_comics(series_name, year)
+    #entry[0] -> publisher
+    #entry[1] -> series_name
+    #entry[2] -> year
+    #entry[3] -> comicvine_volume_id
+
+    for entry in series_list:
+        logging.info(f"Searching for comics in series: {entry[1]} by {entry[0]}")
+        available_comics = search_comics(entry)
         if available_comics:
-            local_dir = create_series_directory(publisher, series_name, year)
-            check_and_download_comics(series_name, available_comics, local_dir, year)
+            local_dir = create_series_directory(entry)
+            check_and_download_comics(entry, available_comics, local_dir)
         else:
-            logging.warning(f"No comics found for series: {series_name}")
+            logging.warning(f"No comics found for series: {entry[1]}")
+
+    
 
     end_time = time.time()
     elapsed_time = end_time - start_time
