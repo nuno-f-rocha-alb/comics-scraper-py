@@ -4,9 +4,11 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="af7746f8-a779-4b2e-b6a4-0fe917ea5f27" name="Changes" comment="enhance comic processing: update regex for title extraction, add publisher and volume ID parameters">
+    <list default="true" id="af7746f8-a779-4b2e-b6a4-0fe917ea5f27" name="Changes" comment="enhance comic processing: refine regex for base title extraction">
+      <change beforePath="$PROJECT_DIR$/.idea/ComicsScraper.iml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/ComicsScraper.iml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/misc.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/misc.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/downloader/check_and_download_comics.py" beforeDir="false" afterPath="$PROJECT_DIR$/downloader/check_and_download_comics.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/main.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -23,6 +25,18 @@
   <component name="Git.Settings">
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
   </component>
+  <component name="GitHubPullRequestSearchHistory">{
+  &quot;lastFilter&quot;: {
+    &quot;state&quot;: &quot;OPEN&quot;,
+    &quot;assignee&quot;: &quot;nuno-f-rocha-alb&quot;
+  }
+}</component>
+  <component name="GithubPullRequestsUISettings">{
+  &quot;selectedUrlAndAccountId&quot;: {
+    &quot;url&quot;: &quot;https://github.com/nuno-f-rocha-alb/comics-scraper-py.git&quot;,
+    &quot;accountId&quot;: &quot;3c9a4f6a-2926-4dfa-aa79-a4a39286f474&quot;
+  }
+}</component>
   <component name="ProjectColorInfo">{
   &quot;associatedIndex&quot;: 7
 }</component>
@@ -34,24 +48,25 @@
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent"><![CDATA[{
-  "keyToString": {
-    "ASKED_MARK_IGNORED_FILES_AS_EXCLUDED": "true",
-    "Python.main.executor": "Debug",
-    "Python.process_comics.executor": "Debug",
-    "RunOnceActivity.ShowReadmeOnStart": "true",
-    "RunOnceActivity.git.unshallow": "true",
-    "git-widget-placeholder": "master",
-    "ignore.virus.scanning.warn.message": "true",
-    "last_opened_file_path": "C:/Users/nunob/Repositorios/ComicsScrapper",
-    "node.js.detected.package.eslint": "true",
-    "node.js.detected.package.tslint": "true",
-    "node.js.selected.package.eslint": "(autodetect)",
-    "node.js.selected.package.tslint": "(autodetect)",
-    "nodejs_package_manager_path": "npm",
-    "vue.rearranger.settings.migration": "true"
+  <component name="PropertiesComponent">{
+  &quot;keyToString&quot;: {
+    &quot;ASKED_MARK_IGNORED_FILES_AS_EXCLUDED&quot;: &quot;true&quot;,
+    &quot;Python.main.executor&quot;: &quot;Debug&quot;,
+    &quot;Python.process_comics.executor&quot;: &quot;Debug&quot;,
+    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;main&quot;,
+    &quot;ignore.virus.scanning.warn.message&quot;: &quot;true&quot;,
+    &quot;last_opened_file_path&quot;: &quot;C:/Users/nunob/Repositorios/ComicsScraper&quot;,
+    &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
+    &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;,
+    &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
+    &quot;node.js.selected.package.tslint&quot;: &quot;(autodetect)&quot;,
+    &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
+    &quot;settings.editor.selected.configurable&quot;: &quot;preferences.lookFeel&quot;,
+    &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
   }
-}]]></component>
+}</component>
   <component name="RdControllerToolWindowsLayoutState" isNewUi="true">
     <layout>
       <window_info id="Bookmarks" side_tool="true" />
@@ -174,7 +189,9 @@
       <workItem from="1740011206286" duration="297000" />
       <workItem from="1740014413055" duration="1451000" />
       <workItem from="1740015892913" duration="2912000" />
-      <workItem from="1740569968956" duration="1055000" />
+      <workItem from="1740569968956" duration="3215000" />
+      <workItem from="1740577952829" duration="4199000" />
+      <workItem from="1740585080538" duration="48000" />
     </task>
     <task id="LOCAL-00001" summary="updated .gitignore">
       <option name="closed" value="true" />
@@ -192,7 +209,15 @@
       <option name="project" value="LOCAL" />
       <updated>1740570416423</updated>
     </task>
-    <option name="localTasksCounter" value="3" />
+    <task id="LOCAL-00003" summary="enhance comic processing: refine regex for base title extraction">
+      <option name="closed" value="true" />
+      <created>1740576769288</created>
+      <option name="number" value="00003" />
+      <option name="presentableId" value="LOCAL-00003" />
+      <option name="project" value="LOCAL" />
+      <updated>1740576769288</updated>
+    </task>
+    <option name="localTasksCounter" value="4" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -218,7 +243,8 @@
   <component name="VcsManagerConfiguration">
     <MESSAGE value="updated .gitignore" />
     <MESSAGE value="enhance comic processing: update regex for title extraction, add publisher and volume ID parameters" />
-    <option name="LAST_COMMIT_MESSAGE" value="enhance comic processing: update regex for title extraction, add publisher and volume ID parameters" />
+    <MESSAGE value="enhance comic processing: refine regex for base title extraction" />
+    <option name="LAST_COMMIT_MESSAGE" value="enhance comic processing: refine regex for base title extraction" />
   </component>
   <component name="XDebuggerManager">
     <breakpoint-manager>

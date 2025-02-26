@@ -7,6 +7,8 @@ from downloader.check_and_download_comics import check_and_download_comics
 from util import create_series_directory
 
 
+#test comment
+
 def main():
     start_time = time.time()
     series_list = read_series_list(SERIES_FILE_PATH)
