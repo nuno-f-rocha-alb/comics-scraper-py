@@ -26,7 +26,7 @@ def check_and_download_comics(entry, available_comics, local_dir):
         normalized_title = normalize_title(title)
 
         # Extract the base title from the comic title (removing issue number and year)
-        base_title_match = re.match(r"^(.*?)\s*#\d+(\.\d+|\.[a-zA-Z]+|[a-zA-Z]+|[a-zA-Z]+\.\d+)?\s*\(\d{4}\)", normalized_title)
+        base_title_match = re.match(r"^(.*?)\s*#(\d+(?:\.[a-zA-Z]+|\.\d+)?)\s*\(\d{4}\)", normalized_title)
         if base_title_match:
             base_title = base_title_match.group(1).strip()
         else:
