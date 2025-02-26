@@ -1,0 +1,15 @@
+---
+services:
+  python-script:
+    image: nunobifes/comics-scraper-py:latest  # The name of your image
+    container_name: comics-scraper-py
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Etc/UTC
+    volumes:
+      - /path/on/your/system/comics:/app/comics
+      - /path/on/your/system/logs:/app/logs
+      - /path/on/your/system/series_list.txt:/app/series_list.txt
+    restart: always
+    entrypoint: ["sh", "-c", "while true; do python main.py; sleep 86400; done"]  # Run the script once every day
