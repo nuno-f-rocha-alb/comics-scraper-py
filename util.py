@@ -9,8 +9,12 @@ def convert_cbr_to_cbz(cbr_path):
     with rarfile.RarFile(cbr_path) as rar:
         with zipfile.ZipFile(cbz_path, "w") as cbz:
             for file_info in rar.infolist():
-                with rar.open(file_info) as file:
-                    cbz.writestr(file_info.filename, file.read())
+                try:
+                    with rar.open(file_info) as file:
+                        cbz.writestr(file_info.filename, file.read())
+                except Exception as e:
+                    logging.error(f"Error converting {cbr_path} to {cbz_path}: {e}")
+                    continue
     os.remove(cbr_path)  # Optional: delete the original .cbr file
     logging.info(f"Converted {cbr_path} to {cbz_path}.")
     return cbz_path

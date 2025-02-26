@@ -29,9 +29,10 @@ def rename_comic_file(file_path, series_name, issue_number):
     os.rename(file_path, new_file_path)
     return new_file_path
 
-def process_comics_folder(folder_path):
+def process_comics_folder(folder_path, publisher,comicvine_volume_id):
     """Process and tag comics in the specified folder with the correct metadata."""
     folder_name = os.path.basename(folder_path)
+    volume_id = comicvine_volume_id
     year = extract_year_from_folder(folder_name)
     if not year:
         logging.error(f"Year not found in folder name: {folder_name}")
@@ -66,7 +67,8 @@ def process_comics_folder(folder_path):
 
         # Fetch metadata from ComicVine
         issue_number = re.sub(r'^0+(?=\d)', '', issue_number)
-        metadata = get_comic_metadata(series_name, issue_number, year)
+        entry = (publisher, series_name, year, volume_id)
+        metadata = get_comic_metadata(entry, issue_number)
         if metadata:
             # Tag the .cbz file
             tag_cbz_file(file_path, metadata)
@@ -74,9 +76,11 @@ def process_comics_folder(folder_path):
             logging.warning(f"Metadata for {series_name} #{issue_number} ({year}) not found.")
 
 if __name__ == "__main__":
-    if len(sys.argv) != 2:
-        print("Usage: python process_comics.py <folder_path>")
+    if len(sys.argv) != 4:
+        print("Usage: python process_comics.py <folder_path> <publisher> <comicvine_volume_id>")
         sys.exit(1)
 
     folder_path = sys.argv[1]
-    process_comics_folder(folder_path)
+    publisher = sys.argv[2]
+    comicvine_volume_id = sys.argv[3]
+    process_comics_folder(folder_path, publisher, comicvine_volume_id)
