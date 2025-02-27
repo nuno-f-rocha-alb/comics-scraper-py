@@ -22,16 +22,34 @@ def check_and_download_comics(entry, available_comics, local_dir):
 
     for title, comic_url in available_comics:
 
+        # pattern = r"^(.*?)\s*#([\d.]+(?:\.\w+)?)\s*\(\d{4}\)"
+        # test_strings = [
+        #     "Miles Morales - Spider-Man #5 (2023)",
+        #     "Miles Morales - Spider-Man #5.5 (2023)",
+        #     "Miles Morales - Spider-Man #5.Death (2023)"
+        # ]
+        #
+        # for text in test_strings:
+        #     match = re.match(pattern, normalize_title(text))
+        #     if match:
+        #         print("Matched:", match.groups())
+        #     else:
+        #         print("No match:", text)
+
+
         # Normalize the title from the website for comparison
         normalized_title = normalize_title(title)
 
         # Extract the base title from the comic title (removing issue number and year)
-        base_title_match = re.match(r"^(.*?)\s*#(\d+(?:\.[a-zA-Z]+|\.\d+)?)\s*\(\d{4}\)", normalized_title)
+        base_title_match = re.match(r"^(.*?)\s*#([\d.]+(?:\.\w+)?)\s*\(\d{4}\)", normalized_title)
         if base_title_match:
             base_title = base_title_match.group(1).strip()
         else:
             logging.info(f"Ignoring {title} as it does not have the expected format.")
             continue
+
+
+
 
         if base_title != normalized_series_name:
             logging.info(f"Ignoring {title} as it does not match the series name {entry[1]}.")
