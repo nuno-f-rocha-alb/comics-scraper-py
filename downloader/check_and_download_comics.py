@@ -101,7 +101,7 @@ def check_and_download_comics(entry, available_comics, local_dir):
             logging.info(f"New comic found: {title}. Downloading...")
             download_url = get_comic_download_url(comic_url)
             if download_url:
-                save_path = download_file(download_url, local_dir, entry[1], formatted_issue_number)
+                save_path = download_file(download_url, local_dir, entry[1], formatted_issue_number, entry[2])
                 process_downloaded_comic(entry, save_path, issue_number)
             else:
                 logging.warning(f"Download link not found for {title}.")

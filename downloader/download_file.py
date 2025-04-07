@@ -5,7 +5,7 @@ import requests
 from tqdm_loggable.auto import tqdm
 
 
-def download_file(url, save_dir, series_name, issue_number):
+def download_file(url, save_dir, series_name, issue_number, volume_year):
     """Downloads a file from the final URL and renames it based on the series name and issue number."""
     parsed_url = urlparse(url)
     file_name = os.path.basename(parsed_url.path)
@@ -16,11 +16,11 @@ def download_file(url, save_dir, series_name, issue_number):
 
     total_size = int(response.headers.get('Content-Length', 0))
 
-    save_path = os.path.join(save_dir, f"{series_name} #{issue_number}{file_extension}")
+    save_path = os.path.join(save_dir, f"{series_name} #{issue_number} ({volume_year}){file_extension}")
 
     with open(save_path, 'wb') as f:
         # Create a tqdm progress bar
-        with tqdm(total=total_size, unit='B', unit_scale=True, desc=f"Downloading {series_name} #{issue_number}{file_extension}") as pbar:
+        with tqdm(total=total_size, unit='B', unit_scale=True, desc=f"Downloading {series_name} #{issue_number} ({volume_year}){file_extension}") as pbar:
             download_start_time = time.time()
             for chunk in response.iter_content(chunk_size=8192):
                 f.write(chunk)
