@@ -26,3 +26,6 @@ BASE_URL = "https://comicvine.gamespot.com/api"
 HEADERS_APP = {
     'User-Agent': 'ComicApp/1.0 (https://comics.bifesserver.site)',
 }
+
+PUID = int(os.getenv("PUID", 1000))
+PGID = int(os.getenv("PGID", 1000))

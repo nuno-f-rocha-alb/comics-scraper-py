@@ -35,6 +35,11 @@ def create_series_directory(entry):
     publisher_dir = str(os.path.join(COMICS_BASE_DIR, entry[0]))
     series_dir = os.path.join(publisher_dir, f"{entry[1]} ({entry[2]})")
     os.makedirs(series_dir, exist_ok=True)
+
+    # Change ownership
+    os.chown(series_dir, PUID, PGID)
+    os.chown(publisher_dir, PUID, PGID)
+
     logging.info(f"Created directory {series_dir}.")
     return str(series_dir)
 

@@ -16,3 +16,6 @@ def process_downloaded_comic(entry, file_path, issue_number):
         tag_cbz_file(file_path, metadata)
     else:
         logging.warning(f"Metadata for {entry[1]} #{issue_number} not found.")
+
+    # Change ownership
+    os.chown(file_path, PUID, PGID)
