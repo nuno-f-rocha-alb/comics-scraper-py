@@ -3,7 +3,7 @@ import os
 from datetime import datetime
 
 SERIES_FILE_PATH = "/app/comics/series_list.txt"  # Update with your series list file
-CACHE_FILE_PATH = "/app/comics/search_cache.json"
+CACHE_FILE_PATH = "/app/cache/search_cache.json"
 CURRENT_DATE = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 LOG_FOLDER = f"logs/"
 LOG_FILENAME = f"comic_downloader_{CURRENT_DATE}.log"
