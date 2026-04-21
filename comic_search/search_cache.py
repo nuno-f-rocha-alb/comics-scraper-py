@@ -25,5 +25,6 @@ def save_cache(series_name, comics):
         except (json.JSONDecodeError, OSError):
             pass
     data[series_name] = [list(entry) for entry in comics]
+    os.makedirs(os.path.dirname(CACHE_FILE_PATH), exist_ok=True)
     with open(CACHE_FILE_PATH, "w") as f:
         json.dump(data, f, indent=2)
