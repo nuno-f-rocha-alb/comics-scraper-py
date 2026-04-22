@@ -1,5 +1,6 @@
 from config import *
 import re
+import time
 import requests
 from bs4 import BeautifulSoup
 
@@ -43,7 +44,13 @@ def get_comic_download_url(comic_url):
     if available. Other mirror links (MEGA, TERABOX, etc.) require external
     clients and are skipped.
     """
+    time.sleep(2)
     response = requests.get(comic_url, headers=HEADERS, timeout=15)
+
+    if response.status_code == 429:
+        logging.warning(f"Rate limited (429) fetching {comic_url}. Waiting 30s before retrying...")
+        time.sleep(30)
+        response = requests.get(comic_url, headers=HEADERS, timeout=15)
 
     if response.status_code != 200:
         logging.warning(f"Unexpected HTTP {response.status_code} for {comic_url}.")
