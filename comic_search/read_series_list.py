@@ -26,8 +26,8 @@ def read_series_list(file_path):
             
             with open(file_path, 'r') as f:
                 for line in f.readlines():
-                    # Skip empty lines to prevent errors
-                    if not line.strip():
+                    # Skip empty lines and comments
+                    if not line.strip() or line.strip().startswith("#"):
                         continue
 
                     # Format: publisher/series_name/year[/comicvine_volume_id[/annual_volume_id]]
