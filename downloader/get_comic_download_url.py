@@ -10,13 +10,21 @@ _UNSUPPORTED_MIRRORS = ["MEGA", "TERABOX", "ROOTZ", "VIKINGFILE"]
 
 
 def _resolve_url(href):
-    """Follow one redirect if present (old site behaviour), otherwise return href directly."""
+    """Follow one redirect if present (old site behaviour), otherwise return href directly.
+
+    If the href already ends with a comic file extension it is returned immediately
+    without making an extra HTTP request — fetching a 50+ MB file just to check
+    for a redirect would time out and return None.
+    """
+    if re.search(r'\.(cbz|cbr|pdf|zip)([?#]|$)', href, re.IGNORECASE):
+        return href
     try:
         r = requests.get(href, headers=HEADERS, allow_redirects=False, timeout=10)
         if r.status_code in (301, 302, 303, 307, 308) and "Location" in r.headers:
             return r.headers["Location"]
         return href
-    except Exception:
+    except Exception as e:
+        logging.warning(f"Could not resolve redirect for {href}: {e}")
         return None
 
 
@@ -36,6 +44,11 @@ def get_comic_download_url(comic_url):
     clients and are skipped.
     """
     response = requests.get(comic_url, headers=HEADERS, timeout=15)
+
+    if response.status_code != 200:
+        logging.warning(f"Unexpected HTTP {response.status_code} for {comic_url}.")
+        return None
+
     soup = BeautifulSoup(response.text, "html.parser")
 
     # Try the main download button (handles both old redirect and new direct links)
@@ -64,6 +77,9 @@ def get_comic_download_url(comic_url):
             f"Mirrors available but require external clients: {', '.join(found_unsupported)}"
         )
     else:
-        logging.warning(f"No downloader link found for {comic_url}.")
+        logging.warning(
+            f"No downloader link found for {comic_url}. "
+            f"(HTTP {response.status_code}, page size {len(response.text)} bytes)"
+        )
 
     return None
