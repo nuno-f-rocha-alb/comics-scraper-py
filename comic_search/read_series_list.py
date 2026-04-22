@@ -30,17 +30,19 @@ def read_series_list(file_path):
                     if not line.strip():
                         continue
 
-                    # Split by the first three slashes (publisher/series_name/year/comicvine_volume_id)
-                    parts = line.strip().split("/", 3)
-                    
-                    if len(parts) == 4:
+                    # Format: publisher/series_name/year[/comicvine_volume_id[/annual_volume_id]]
+                    parts = line.strip().split("/", 4)
+
+                    if len(parts) == 5:
+                        publisher, series_name, year, comicvine_volume_id, annual_volume_id = parts
+                        series_list.append((publisher.strip(), series_name.strip(), year.strip(), comicvine_volume_id.strip(), annual_volume_id.strip()))
+                    elif len(parts) == 4:
                         publisher, series_name, year, comicvine_volume_id = parts
-                        series_list.append((publisher.strip(), series_name.strip(), year.strip(), comicvine_volume_id.strip()))
+                        series_list.append((publisher.strip(), series_name.strip(), year.strip(), comicvine_volume_id.strip(), None))
                     elif len(parts) == 3:
                         publisher, series_name, year = parts
-                        series_list.append((publisher.strip(), series_name.strip(), year.strip(), None))
+                        series_list.append((publisher.strip(), series_name.strip(), year.strip(), None, None))
                     else:
-                        # Handle case where the format doesn't have 3 or 4 parts
                         logging.warning(f"Skipping invalid entry: {line.strip()}")
             
             # If we reached here, the file was read successfully

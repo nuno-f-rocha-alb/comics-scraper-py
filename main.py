@@ -17,6 +17,7 @@ def main():
     #entry[1] -> series_name
     #entry[2] -> year
     #entry[3] -> comicvine_volume_id
+    #entry[4] -> annual_volume_id (optional)
 
     for entry in series_list:
         logging.info(f"Searching for comics in series: {entry[1]} by {entry[0]}")

@@ -8,19 +8,24 @@ from downloader.process_downloaded_comic import process_downloaded_comic
 from util import normalize_title, extract_year_from_comic_title
 
 
-
 def check_and_download_comics(entry, available_comics, local_dir):
     """Compares available comics with local files and downloads new ones if not already present, ignoring non-matching titles."""
-    #if not os.path.exists(local_dir):
-    #    os.makedirs(local_dir)
 
     # Normalize the series name for matching
     normalized_series_name = normalize_title(entry[1])
+    normalized_annual_name = normalized_series_name + " annual"
+
+    # entry[4] is the optional annual ComicVine volume ID
+    annual_volume_id = entry[4] if len(entry) > 4 else None
 
     # Define keywords to ignore
     ignore_keywords = ['Access', 'Preview', 'TPB']
 
     existing_files = {f for f in os.listdir(local_dir)}
+
+    # Annuals directory and its file listing — only initialised if needed
+    annuals_dir = os.path.join(local_dir, "Annuals")
+    existing_annual_files = None
 
     for title, comic_url in available_comics:
 
@@ -35,11 +40,15 @@ def check_and_download_comics(entry, available_comics, local_dir):
             logging.info(f"Ignoring {title} as it does not have the expected format.")
             continue
 
+        is_main = base_title == normalized_series_name
+        is_annual = base_title == normalized_annual_name
 
-
-
-        if base_title != normalized_series_name:
+        if not is_main and not is_annual:
             logging.info(f"Ignoring {title} as it does not match the series name {entry[1]}.")
+            continue
+
+        if is_annual and not annual_volume_id:
+            logging.info(f"Ignoring {title} (annual) as no annual volume ID is configured.")
             continue
 
         # Check if the normalized series name is part of the normalized title
@@ -55,11 +64,10 @@ def check_and_download_comics(entry, available_comics, local_dir):
 
         comic_year = int(year_match)
 
-
         # Compare the comic year against the directory year
         if comic_year < int(entry[2]):
             logging.info(f"Ignoring {title} as its year {comic_year} is older than the directory year {entry[2]}.")
-            continue  # Ignore this comic as it is older than the directory year
+            continue
 
         # Check for unwanted keywords in the title
         if any(keyword in title for keyword in ignore_keywords):
@@ -71,25 +79,48 @@ def check_and_download_comics(entry, available_comics, local_dir):
         issue_number = issue_match.group(1) if issue_match else "000"
         formatted_issue_number = f"{int(issue_number):03}" if issue_number.isdigit() else "000"
 
+        if is_annual:
+            # Prepare annuals directory on first use
+            if existing_annual_files is None:
+                os.makedirs(annuals_dir, exist_ok=True)
+                os.chown(annuals_dir, PUID, PGID)
+                existing_annual_files = {f for f in os.listdir(annuals_dir)}
 
+            annual_series_name = entry[1] + " Annual"
+            annual_entry = (entry[0], annual_series_name, entry[2], annual_volume_id)
+            comic_file_regex = re.compile(
+                fr"^{re.escape(annual_series_name)}\s*#{formatted_issue_number}\s*.*\.(cbr|cbz)$",
+                re.IGNORECASE
+            )
 
-        # Regex to check for the existence of this issue in the local directory
-        # The pattern accounts for variations in the file name while checking for the issue number
-        comic_file_regex = re.compile(
-            fr"^{re.escape(entry[1])}\s*#{formatted_issue_number}\s*.*\.(cbr|cbz)$",
-            re.IGNORECASE
-        )
-
-        # Check if the exact issue already exists
-        if not any(comic_file_regex.match(file) for file in existing_files):
-            logging.info(f"New comic found: {title}. Downloading...")
-            download_url = get_comic_download_url(comic_url)
-            if download_url:
-                save_path = download_file(download_url, local_dir, entry[1], formatted_issue_number, entry[2])
-                process_downloaded_comic(entry, save_path, issue_number)
-                existing_files = {f for f in os.listdir(local_dir)}
+            if not any(comic_file_regex.match(f) for f in existing_annual_files):
+                logging.info(f"New annual found: {title}. Downloading...")
+                download_url = get_comic_download_url(comic_url)
+                if download_url:
+                    save_path = download_file(download_url, annuals_dir, annual_series_name, formatted_issue_number, entry[2])
+                    process_downloaded_comic(annual_entry, save_path, issue_number)
+                    existing_annual_files = {f for f in os.listdir(annuals_dir)}
+                else:
+                    logging.warning(f"Download link not found for {title}.")
+                time.sleep(1)
             else:
-                logging.warning(f"Download link not found for {title}.")
-            time.sleep(1)
+                logging.info(f"{title} already exists locally in an alternate format.")
+
         else:
-            logging.info(f"{title} already exists locally in an alternate format.")
+            comic_file_regex = re.compile(
+                fr"^{re.escape(entry[1])}\s*#{formatted_issue_number}\s*.*\.(cbr|cbz)$",
+                re.IGNORECASE
+            )
+
+            if not any(comic_file_regex.match(file) for file in existing_files):
+                logging.info(f"New comic found: {title}. Downloading...")
+                download_url = get_comic_download_url(comic_url)
+                if download_url:
+                    save_path = download_file(download_url, local_dir, entry[1], formatted_issue_number, entry[2])
+                    process_downloaded_comic(entry, save_path, issue_number)
+                    existing_files = {f for f in os.listdir(local_dir)}
+                else:
+                    logging.warning(f"Download link not found for {title}.")
+                time.sleep(1)
+            else:
+                logging.info(f"{title} already exists locally in an alternate format.")
