@@ -42,7 +42,7 @@ def check_and_download_comics(entry, available_comics, local_dir):
 
         # Strip bare years (e.g. "2026") from the base title before comparing —
         # some titles embed the year like "Absolute Wonder Woman 2026 Annual #1 (2026)"
-        base_title_clean = re.sub(r'\b\d{4}\b', '', base_title).strip()
+        base_title_clean = ' '.join(re.sub(r'\b\d{4}\b', '', base_title).split())
 
         is_main = base_title == normalized_series_name
         is_annual = base_title == normalized_annual_name or base_title_clean == normalized_annual_name
