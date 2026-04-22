@@ -14,12 +14,17 @@ def search_comics(entry):
     Uses a cache to stop early once a page is fully known — since getcomics.org
     returns results newest-first, a fully-cached page means all further pages
     are already known too.
+
+    seen_urls tracks every URL encountered (including year-filtered ones) so the
+    early-stop check works even for broad searches like "The Darkness" where most
+    results are filtered out and never added to the comics list.
     """
-    cached_comics = load_cache(entry[1])
-    cached_urls = {url for _, url in cached_comics}
+    seen_urls, cached_comics = load_cache(entry[1])
+    cached_comic_urls = {url for _, url in cached_comics}
 
     page = 1
     new_comics = []  # (title, url, issue_number, year) — only entries not in cache
+    new_seen_urls = set()
 
     while True:
         search_url = f"{BASE_SEARCH_URL.format(page)}{entry[1].replace(' ', '+')}"
@@ -35,8 +40,8 @@ def search_comics(entry):
 
         page_urls = {link['href'] for link in page_comics}
 
-        # If every URL on this page is already cached, stop — all further pages are also cached
-        if page_urls and page_urls.issubset(cached_urls):
+        # If every URL on this page was seen before, stop — all further pages are also known
+        if page_urls and page_urls.issubset(seen_urls):
             logging.info(f"Page {page} fully cached, stopping early.")
             break
 
@@ -44,8 +49,10 @@ def search_comics(entry):
             comic_title = link.get_text(strip=True)
             comic_url = link['href']
 
-            if comic_url in cached_urls:
-                continue  # already known, skip
+            new_seen_urls.add(comic_url)
+
+            if comic_url in cached_comic_urls:
+                continue  # already in results, skip
 
             issue_match = re.search(r"#(\d+)", comic_title)
             issue_number = int(issue_match.group(1)) if issue_match else float('inf')
@@ -60,18 +67,17 @@ def search_comics(entry):
         page += 1
         time.sleep(1)
 
-    # Merge cache + new, update cache
-    all_title_url = cached_comics + [(t, u) for t, u, _, _ in new_comics]
-    save_cache(entry[1], all_title_url)
+    # Persist updated seen_urls and comics list
+    all_seen_urls = seen_urls | new_seen_urls
+    all_comics = cached_comics + [(t, u) for t, u, _, _ in new_comics]
+    save_cache(entry[1], all_seen_urls, all_comics)
 
-    # Build the full sorted result list (cached entries need their issue/year re-parsed for sorting)
+    # Sort by year then issue number
     def parse_sort_key(title):
         issue_match = re.search(r"#(\d+)", title)
         issue_number = int(issue_match.group(1)) if issue_match else float('inf')
         year = extract_year_from_comic_title(title) or 0
         return (year, issue_number)
 
-    all_comics = all_title_url
     all_comics.sort(key=lambda x: parse_sort_key(x[0]))
-
     return all_comics
