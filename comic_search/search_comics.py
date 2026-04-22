@@ -23,7 +23,7 @@ def search_comics(entry):
 
     while True:
         search_url = f"{BASE_SEARCH_URL.format(page)}{entry[1].replace(' ', '+')}"
-        response = requests.get(search_url, headers=HEADERS)
+        response = requests.get(search_url, headers=HEADERS, timeout=15)
 
         if response.status_code == 404 or "No Results Found" in response.text:
             break

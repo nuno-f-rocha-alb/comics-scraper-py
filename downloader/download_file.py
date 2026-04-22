@@ -11,7 +11,7 @@ def download_file(url, save_dir, series_name, issue_number, volume_year):
     file_name = os.path.basename(parsed_url.path)
     file_extension = os.path.splitext(file_name)[1]  # Get the file extension
 
-    response = requests.get(url, headers=HEADERS, stream=True)
+    response = requests.get(url, headers=HEADERS, stream=True, timeout=(10, 120))
     response.raise_for_status()
 
     total_size = int(response.headers.get('Content-Length', 0))

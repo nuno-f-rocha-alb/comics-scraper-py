@@ -22,7 +22,7 @@ def get_comic_metadata(entry, issue_number):
         "format": "json",
         "limit": 1
     }
-    response = requests.get(issues_url, headers=HEADERS_APP, params=params)
+    response = requests.get(issues_url, headers=HEADERS_APP, params=params, timeout=15)
 
     if response.status_code == 403:
         logging.error("Access denied. Check your API key and User-Agent.")

@@ -20,22 +20,9 @@ def check_and_download_comics(entry, available_comics, local_dir):
     # Define keywords to ignore
     ignore_keywords = ['Access', 'Preview', 'TPB']
 
+    existing_files = {f for f in os.listdir(local_dir)}
+
     for title, comic_url in available_comics:
-
-        # pattern = r"^(.*?)\s*#([\d.]+(?:\.\w+)?)\s*\(\d{4}\)"
-        # test_strings = [
-        #     "Miles Morales - Spider-Man #5 (2023)",
-        #     "Miles Morales - Spider-Man #5.5 (2023)",
-        #     "Miles Morales - Spider-Man #5.Death (2023)"
-        # ]
-        #
-        # for text in test_strings:
-        #     match = re.match(pattern, normalize_title(text))
-        #     if match:
-        #         print("Matched:", match.groups())
-        #     else:
-        #         print("No match:", text)
-
 
         # Normalize the title from the website for comparison
         normalized_title = normalize_title(title)
@@ -69,9 +56,6 @@ def check_and_download_comics(entry, available_comics, local_dir):
         comic_year = int(year_match)
 
 
-        # Pattern to match existing files in the local directory
-        existing_files = {f for f in os.listdir(local_dir)}
-
         # Compare the comic year against the directory year
         if comic_year < int(entry[2]):
             logging.info(f"Ignoring {title} as its year {comic_year} is older than the directory year {entry[2]}.")
@@ -103,6 +87,7 @@ def check_and_download_comics(entry, available_comics, local_dir):
             if download_url:
                 save_path = download_file(download_url, local_dir, entry[1], formatted_issue_number, entry[2])
                 process_downloaded_comic(entry, save_path, issue_number)
+                existing_files = {f for f in os.listdir(local_dir)}
             else:
                 logging.warning(f"Download link not found for {title}.")
             time.sleep(1)

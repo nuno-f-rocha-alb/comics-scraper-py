@@ -35,7 +35,7 @@ def get_comic_download_url(comic_url):
     if available. Other mirror links (MEGA, TERABOX, etc.) require external
     clients and are skipped.
     """
-    response = requests.get(comic_url, headers=HEADERS)
+    response = requests.get(comic_url, headers=HEADERS, timeout=15)
     soup = BeautifulSoup(response.text, "html.parser")
 
     # Try the main download button (handles both old redirect and new direct links)

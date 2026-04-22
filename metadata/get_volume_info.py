@@ -11,7 +11,7 @@ def get_volume_info(series_name, target_year=None):
         "query": series_name,
         "resources": "volume",
     }
-    response = requests.get(search_url, headers=HEADERS_APP, params=params)
+    response = requests.get(search_url, headers=HEADERS_APP, params=params, timeout=15)
 
     if response.status_code == 403:
         logging.error("Access denied. Check your API key and User-Agent.")
@@ -23,24 +23,18 @@ def get_volume_info(series_name, target_year=None):
         # Iterate through all volumes to find the one matching the series name
         for volume in data["results"]:
             volume_name = volume.get("name", "").lower()
-            if volume_name == series_name.lower():  # Case-insensitive comparison
-                # If a target year is provided, check against it
-                if target_year is not None:
-                    if volume.get("start_year") == target_year:
-                        volume_id = volume["id"]
-                        # Get the publisher from the volume details
-                        publisher = volume.get("publisher", {}).get("name", "")
-                        issue_count = volume.get("count_of_issues", 0)
-                        logging.info(f"Found volume ID {volume_id} for series {series_name} ({target_year}).")
-                        return volume_id, publisher, issue_count
-
-            else:
-                # If no year filter is applied, return the first match
+            if volume_name == series_name.lower():
                 volume_id = volume["id"]
                 publisher = volume.get("publisher", {}).get("name", "")
                 issue_count = volume.get("count_of_issues", 0)
-                logging.info(f"Found volume ID {volume_id} for series {series_name}.")
-                return volume_id, publisher, issue_count
+                # With a year filter, require the start year to match
+                if target_year is not None:
+                    if volume.get("start_year") == target_year:
+                        logging.info(f"Found volume ID {volume_id} for series {series_name} ({target_year}).")
+                        return volume_id, publisher, issue_count
+                else:
+                    logging.info(f"Found volume ID {volume_id} for series {series_name}.")
+                    return volume_id, publisher, issue_count
 
         logging.warning(f"No exact match found for series name: {series_name} with year filter: {target_year}")
     else:
@@ -55,7 +49,7 @@ def get_volume_info_by_id(volume_id):
         "api_key": API_KEY,
         "format": "json",
     }
-    response = requests.get(volume_url, headers=HEADERS_APP, params=params)
+    response = requests.get(volume_url, headers=HEADERS_APP, params=params, timeout=15)
 
     if response.status_code == 403:
         logging.error("Access denied. Check your API key and User-Agent.")

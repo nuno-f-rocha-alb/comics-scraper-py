@@ -15,8 +15,11 @@ def convert_cbr_to_cbz(cbr_path):
                 except Exception as e:
                     logging.error(f"Error converting {cbr_path} to {cbz_path}: {e}")
                     continue
-    os.remove(cbr_path)  # Optional: delete the original .cbr file
-    logging.info(f"Converted {cbr_path} to {cbz_path}.")
+    if os.path.exists(cbz_path) and os.path.getsize(cbz_path) > 0:
+        os.remove(cbr_path)
+        logging.info(f"Converted {cbr_path} to {cbz_path}.")
+    else:
+        logging.error(f"CBZ output missing or empty after conversion of {cbr_path}, keeping original.")
     return cbz_path
 
 
@@ -34,22 +37,25 @@ def create_series_directory(entry):
     """Creates a directory path based on publisher, series title, and year."""
     publisher_dir = str(os.path.join(COMICS_BASE_DIR, entry[0]))
     series_dir = os.path.join(publisher_dir, f"{entry[1]} ({entry[2]})")
+    is_new = not os.path.exists(series_dir)
     os.makedirs(series_dir, exist_ok=True)
 
     # Change ownership
     os.chown(series_dir, PUID, PGID)
     os.chown(publisher_dir, PUID, PGID)
 
-    logging.info(f"Created directory {series_dir}.")
+    if is_new:
+        logging.info(f"Created directory {series_dir}.")
     return str(series_dir)
 
 
 def normalize_title(title):
-    """Normalize the title by stripping common prefixes and converting to lowercase."""
-    common_prefixes = ["the ", "a ", "an "]  # Add other prefixes as needed
+    """Normalize the title by converting to lowercase, stripping common prefixes, and replacing dashes."""
+    title = title.lower()
+    common_prefixes = ["the ", "a ", "an "]
     for prefix in common_prefixes:
         if title.startswith(prefix):
             title = title[len(prefix):]
     title = title.replace("–", "-")  # Replace en dash with hyphen
-    title = title.strip()  # Trim whitespace
+    title = title.strip()
     return title
