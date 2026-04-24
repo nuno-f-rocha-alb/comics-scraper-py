@@ -21,7 +21,7 @@ import logging
 
 
 def has_metadata(cbz_path: str) -> bool:
-    meta = ComicArchive(cbz_path).readMetadata(1)
+    meta = ComicArchive(cbz_path).read_metadata(1)
     return bool(meta.series)
 
 
