@@ -67,7 +67,7 @@ def get_comic_metadata_metron(entry, issue_number: str) -> dict | None:
     return {
         "series_name": issue["series"]["name"],
         "issue_number": issue["number"],
-        "title": issue.get("name", ""),
+        "title": ", ".join(issue.get("name", [])) if isinstance(issue.get("name"), list) else issue.get("name", ""),
         "publisher": series_info["publisher"],
         "description": issue.get("desc", ""),
         "issue_count": series_info["issue_count"],
