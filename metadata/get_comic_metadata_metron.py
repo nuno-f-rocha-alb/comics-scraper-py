@@ -18,8 +18,11 @@ def _series_detail(series_id: int) -> dict:
     return result
 
 
-def _find_series_id(cv_id, series_name: str, year_began) -> int | None:
-    # Try by CV ID first — avoids ambiguous name searches
+def _find_series_id(cv_id, series_name: str, year_began, metron_series_id=None) -> int | None:
+    # Direct Metron ID — no lookup needed (set by web UI when adding a series)
+    if metron_series_id:
+        return int(metron_series_id)
+    # Try by CV ID next — avoids ambiguous name searches
     if cv_id:
         r = metron_client.get(f"{METRON_BASE_URL}/series/", cv_id=int(cv_id))
         results = r.json().get("results", [])
@@ -42,8 +45,9 @@ def get_comic_metadata_metron(entry, issue_number: str) -> dict | None:
     cv_id = entry[3]
     series_name = entry[1]
     year = entry[2]
+    metron_series_id = entry[5] if len(entry) > 5 else None
 
-    series_id = _find_series_id(cv_id, series_name, year)
+    series_id = _find_series_id(cv_id, series_name, year, metron_series_id)
     if not series_id:
         logging.warning(f"Metron: series not found for {series_name} ({year})")
         return None
