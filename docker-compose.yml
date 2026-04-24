@@ -9,6 +9,7 @@ services:
       - TZ=Etc/UTC
       - METRON_USER=your_metron_username
       - METRON_PASS=your_metron_password
+      - COMICVINE_API_KEY=your_comicvine_api_key
     volumes:
       - /path/on/your/system/comics:/app/comics   # series_list.txt lives here
       - /path/on/your/system/logs:/app/logs

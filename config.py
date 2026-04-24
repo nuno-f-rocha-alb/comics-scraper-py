@@ -24,7 +24,7 @@ HEADERS = {
     "Accept-Language": "en-US,en;q=0.5",
 }
 COMICS_BASE_DIR = "comics"
-API_KEY = "765ec8fbf2459db8276d47ed11f3ba74f961f018"
+API_KEY = os.getenv("COMICVINE_API_KEY", "")
 BASE_URL = "https://comicvine.gamespot.com/api"
 
 # Define a User-Agent

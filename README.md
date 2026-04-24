@@ -21,8 +21,9 @@ Fill in the volume paths and credentials:
 environment:
   - PUID=1000          # UID for file ownership
   - PGID=1000          # GID for file ownership
-  - METRON_USER=...    # metron.cloud username
-  - METRON_PASS=...    # metron.cloud password
+  - METRON_USER=...          # metron.cloud username
+  - METRON_PASS=...          # metron.cloud password
+  - COMICVINE_API_KEY=...    # comicvine.gamespot.com API key
 
 volumes:
   - /your/comics/path:/app/comics   # series_list.txt must be here
@@ -69,7 +70,7 @@ Metron is the primary metadata source. If a series or issue is not found on Metr
 
 The `ComicVineVolumeID` in `series_list.txt` is also used to look up the corresponding series on Metron via its `cv_id` filter — no separate Metron ID needed.
 
-A ComicVine API key is bundled in `config.py`. Metron credentials must be provided via environment variables.
+Both Metron credentials and the ComicVine API key are provided via environment variables.
 
 ## File structure
 
