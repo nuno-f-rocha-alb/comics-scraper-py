@@ -34,3 +34,7 @@ HEADERS_APP = {
 
 PUID = int(os.getenv("PUID", 1000))
 PGID = int(os.getenv("PGID", 1000))
+
+METRON_BASE_URL = "https://metron.cloud/api"
+METRON_USER = os.getenv("METRON_USER", "")
+METRON_PASS = os.getenv("METRON_PASS", "")
