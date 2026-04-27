@@ -12,7 +12,12 @@
         {% if s.image %}
         <img src="{{ s.image }}" alt="{{ display_name }}" class="cover-img">
         {% else %}
-        <div class="cover-placeholder"><i class="bi bi-book"></i></div>
+        <div class="cover-placeholder"
+             hx-get="/api/metron/series/{{ s.id }}/cover"
+             hx-trigger="load"
+             hx-swap="outerHTML">
+          <i class="bi bi-book"></i>
+        </div>
         {% endif %}
         <div class="overflow-hidden d-flex flex-column min-w-0">
           <h6 class="fw-semibold text-truncate mb-1" title="{{ display_name }}">{{ display_name }}</h6>

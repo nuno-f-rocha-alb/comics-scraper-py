@@ -216,6 +216,36 @@ def metron_search_pick(request: Request, name: str = "", field: str = ""):
         )
 
 
+@app.get("/api/metron/series/{metron_id}/cover", response_class=HTMLResponse)
+def metron_series_cover(metron_id: int):
+    try:
+        from config import METRON_BASE_URL
+        from metadata.metron_client import get as metron_get
+
+        r = metron_get(f"{METRON_BASE_URL}/series/{metron_id}/")
+        data = r.json()
+        img = data.get("image") or ""
+        if not (isinstance(img, str) and img):
+            r2 = metron_get(
+                f"{METRON_BASE_URL}/issue/",
+                series_id=metron_id,
+                ordering="number",
+                limit=1,
+            )
+            issues = r2.json().get("results", [])
+            if issues:
+                img2 = issues[0].get("image") or ""
+                img = img2 if isinstance(img2, str) and img2 else ""
+
+        if img:
+            return HTMLResponse(
+                f'<img src="{img}" class="cover-img" alt="">'
+            )
+    except Exception:
+        pass
+    return HTMLResponse('<div class="cover-placeholder"><i class="bi bi-book"></i></div>')
+
+
 @app.get("/api/metron/series/{metron_id}/add-form", response_class=HTMLResponse)
 def metron_series_add_form(request: Request, metron_id: int):
     try:
