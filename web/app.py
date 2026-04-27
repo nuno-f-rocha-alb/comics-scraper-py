@@ -55,50 +55,39 @@ def get_db():
         yield db
 
 
+def _series_dir(s: Series) -> str:
+    return os.path.join(COMICS_BASE_DIR, s.publisher, f"{s.series_name} ({s.year})")
+
+
 def _count_local_issues(s: Series) -> int:
-    path = os.path.join(COMICS_BASE_DIR, s.publisher, f"{s.series_name} ({s.year})")
+    path = _series_dir(s)
     if not os.path.isdir(path):
         return 0
-    return sum(
-        1 for f in os.listdir(path)
-        if f.lower().endswith((".cbz", ".cbr")) and "annual" not in f.lower()
-    )
+    return sum(1 for f in os.listdir(path) if f.lower().endswith((".cbz", ".cbr")))
+
+
+def _extract_nums(folder: str) -> set[str]:
+    if not os.path.isdir(folder):
+        return set()
+    nums: set[str] = set()
+    for f in os.listdir(folder):
+        if not f.lower().endswith((".cbz", ".cbr")):
+            continue
+        m = re.search(r"#(\d+(?:\.\d+)?)", f)
+        if m:
+            try:
+                nums.add(str(int(float(m.group(1)))))
+            except ValueError:
+                pass
+    return nums
 
 
 def _local_issue_numbers(s: Series) -> set[str]:
-    path = os.path.join(COMICS_BASE_DIR, s.publisher, f"{s.series_name} ({s.year})")
-    if not os.path.isdir(path):
-        return set()
-    nums: set[str] = set()
-    for f in os.listdir(path):
-        fname = f.lower()
-        if not fname.endswith((".cbz", ".cbr")) or "annual" in fname:
-            continue
-        m = re.search(r"#(\d+(?:\.\d+)?)", f)
-        if m:
-            try:
-                nums.add(str(int(float(m.group(1)))))
-            except ValueError:
-                pass
-    return nums
+    return _extract_nums(_series_dir(s))
 
 
 def _local_annual_issue_numbers(s: Series) -> set[str]:
-    path = os.path.join(COMICS_BASE_DIR, s.publisher, f"{s.series_name} ({s.year})")
-    if not os.path.isdir(path):
-        return set()
-    nums: set[str] = set()
-    for f in os.listdir(path):
-        fname = f.lower()
-        if not fname.endswith((".cbz", ".cbr")) or "annual" not in fname:
-            continue
-        m = re.search(r"#(\d+(?:\.\d+)?)", f)
-        if m:
-            try:
-                nums.add(str(int(float(m.group(1)))))
-            except ValueError:
-                pass
-    return nums
+    return _extract_nums(os.path.join(_series_dir(s), "Annuals"))
 
 
 def _fetch_metron_issues(metron_series_id: int) -> list[dict]:
