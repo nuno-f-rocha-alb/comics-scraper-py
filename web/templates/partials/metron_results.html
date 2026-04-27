@@ -1,0 +1,35 @@
+{% if not results %}
+<div class="text-muted text-center py-4">
+  <i class="bi bi-emoji-frown me-1"></i>No results for "<strong>{{ query }}</strong>".
+</div>
+{% else %}
+<div class="row g-3">
+  {% for s in results %}
+  <div class="col-12 col-sm-6 col-xl-4">
+    <div class="card h-100" style="border-radius:10px !important;">
+      <div class="card-body d-flex gap-3 p-3">
+        {% if s.image %}
+        <img src="{{ s.image }}" alt="{{ s.name }}" class="cover-img">
+        {% else %}
+        <div class="cover-placeholder"><i class="bi bi-book"></i></div>
+        {% endif %}
+        <div class="overflow-hidden d-flex flex-column min-w-0">
+          <h6 class="fw-semibold text-truncate mb-1" title="{{ s.name }}">{{ s.name }}</h6>
+          <p class="text-muted small mb-1">{{ s.publisher.name if s.publisher else '&#8212;' }}</p>
+          <p class="text-muted small mb-auto">
+            {% if s.year_began %}{{ s.year_began }}{% endif %}
+            {% if s.issue_count %} &middot; {{ s.issue_count }} issues{% endif %}
+          </p>
+          <button class="btn btn-primary btn-sm mt-2 align-self-start"
+                  hx-get="/api/metron/series/{{ s.id }}/add-form"
+                  hx-target="#search-area"
+                  hx-swap="innerHTML">
+            <i class="bi bi-plus-lg me-1"></i>Select
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}

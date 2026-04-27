@@ -19,7 +19,10 @@ def search_comics(entry):
     early-stop check works even for broad searches like "The Darkness" where most
     results are filtered out and never added to the comics list.
     """
-    seen_urls, cached_comics = load_cache(entry[1])
+    # entry[6] is getcomics_search_name — overrides entry[1] (series_name) for search/cache
+    search_term = entry[6] if len(entry) > 6 and entry[6] else entry[1]
+
+    seen_urls, cached_comics = load_cache(search_term)
     cached_comic_urls = {url for _, url in cached_comics}
 
     page = 1
@@ -27,7 +30,7 @@ def search_comics(entry):
     new_seen_urls = set()
 
     while True:
-        search_url = f"{BASE_SEARCH_URL.format(page)}{entry[1].replace(' ', '+')}"
+        search_url = f"{BASE_SEARCH_URL.format(page)}{search_term.replace(' ', '+')}"
         response = requests.get(search_url, headers=HEADERS, timeout=15)
 
         if response.status_code == 404 or "No Results Found" in response.text:
@@ -70,7 +73,7 @@ def search_comics(entry):
     # Persist updated seen_urls and comics list
     all_seen_urls = seen_urls | new_seen_urls
     all_comics = cached_comics + [(t, u) for t, u, _, _ in new_comics]
-    save_cache(entry[1], all_seen_urls, all_comics)
+    save_cache(search_term, all_seen_urls, all_comics)
 
     # Sort by year then issue number
     def parse_sort_key(title):

@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}Comics Scraper{% endblock %}</title>
+  <link rel="icon" type="image/svg+xml" href="/static/logo.svg">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+  <script src="https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js"></script>
+  <style>
+    /* ── Sidebar ─────────────────────────────────────────────────────────── */
+    #sidebar {
+      position: fixed;
+      top: 0; left: 0; bottom: 0;
+      width: 220px;
+      background: #12141a;
+      border-right: 1px solid rgba(255,255,255,0.06);
+      display: flex;
+      flex-direction: column;
+      padding: 1.25rem 0.75rem;
+      z-index: 200;
+    }
+    .sidebar-logo {
+      display: flex;
+      align-items: center;
+      gap: 0.65rem;
+      padding: 0.25rem 0.5rem 1.25rem;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+      margin-bottom: 0.75rem;
+    }
+    .sidebar-logo .logo-icon { font-size: 1.6rem; color: #5b8dd9; }
+    .sidebar-logo .logo-text { font-size: 0.9rem; font-weight: 700; color: #e2e8f0; line-height: 1.2; }
+    .sidebar-logo .logo-sub  { font-size: 0.7rem; color: #4a5568; font-weight: 400; }
+
+    .sidebar-section-label {
+      font-size: 0.67rem;
+      font-weight: 700;
+      letter-spacing: 0.09em;
+      text-transform: uppercase;
+      color: #3a4459;
+      padding: 0.4rem 0.75rem 0.2rem;
+    }
+    .sidebar-nav .nav-link {
+      color: #7a8799;
+      border-radius: 8px;
+      padding: 0.45rem 0.75rem;
+      font-size: 0.875rem;
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      transition: background 0.15s, color 0.15s;
+    }
+    .sidebar-nav .nav-link:hover  { background: rgba(255,255,255,0.07); color: #d1d9e6; }
+    .sidebar-nav .nav-link.active { background: rgba(91,141,217,0.18); color: #5b8dd9; }
+    .sidebar-nav .nav-link i { font-size: 0.95rem; }
+
+    .sidebar-footer {
+      border-top: 1px solid rgba(255,255,255,0.06);
+      padding-top: 0.75rem;
+    }
+    .theme-toggle {
+      width: 100%;
+      background: none;
+      border: 1px solid rgba(255,255,255,0.1);
+      color: #7a8799;
+      border-radius: 8px;
+      padding: 0.4rem 0.75rem;
+      font-size: 0.8rem;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      transition: background 0.15s, color 0.15s;
+    }
+    .theme-toggle:hover { background: rgba(255,255,255,0.07); color: #d1d9e6; }
+
+    /* ── Main content ────────────────────────────────────────────────────── */
+    #main-content {
+      margin-left: 220px;
+      min-height: 100vh;
+      padding: 2rem 2.5rem;
+    }
+
+    /* ── Cards ───────────────────────────────────────────────────────────── */
+    .card {
+      border-radius: 12px !important;
+      border: none !important;
+    }
+    [data-bs-theme="light"] .card {
+      box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 4px 16px rgba(0,0,0,0.04);
+    }
+    [data-bs-theme="dark"] .card {
+      box-shadow: 0 1px 4px rgba(0,0,0,0.4), 0 4px 16px rgba(0,0,0,0.25);
+    }
+
+    /* ── Table ───────────────────────────────────────────────────────────── */
+    .table-card { border-radius: 12px; overflow: hidden; }
+    .table { margin-bottom: 0; }
+    .table thead th {
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+
+    /* ── Buttons ─────────────────────────────────────────────────────────── */
+    .btn { border-radius: 8px; }
+    .btn-group > .btn                { border-radius: 0; }
+    .btn-group > .btn:first-child    { border-radius: 8px 0 0 8px; }
+    .btn-group > .btn:last-child     { border-radius: 0 8px 8px 0; }
+    .btn-group > .btn:only-child     { border-radius: 8px; }
+
+    /* ── Badges ──────────────────────────────────────────────────────────── */
+    .badge { border-radius: 6px; font-weight: 500; }
+    .badge-active { background: rgba(25,135,84,0.15); color: #198754; }
+    .badge-paused { background: rgba(108,117,125,0.15); color: #6c757d; }
+    [data-bs-theme="dark"] .badge-active { background: rgba(25,135,84,0.25); color: #75b798; }
+    [data-bs-theme="dark"] .badge-paused { background: rgba(108,117,125,0.25); color: #adb5bd; }
+
+    /* ── Cover art ───────────────────────────────────────────────────────── */
+    .cover-img {
+      width: 72px; height: 108px;
+      object-fit: cover;
+      border-radius: 8px;
+      flex-shrink: 0;
+    }
+    .cover-placeholder {
+      width: 72px; height: 108px;
+      border-radius: 8px;
+      background: rgba(91,141,217,0.1);
+      display: flex; align-items: center; justify-content: center;
+      color: #5b8dd9; font-size: 1.4rem;
+      flex-shrink: 0;
+    }
+
+    /* ── Forms ───────────────────────────────────────────────────────────── */
+    .form-control, .form-select { border-radius: 8px; }
+    .input-group > .form-control:first-child { border-radius: 8px 0 0 8px; }
+    .input-group > .btn:last-child            { border-radius: 0 8px 8px 0; }
+
+    /* ── HTMX indicator ──────────────────────────────────────────────────── */
+    .htmx-indicator { display: none; }
+    .htmx-request .htmx-indicator { display: inline-block; }
+
+    /* ── Mobile ──────────────────────────────────────────────────────────── */
+    #mobile-topbar { display: none; }
+    @media (max-width: 768px) {
+      #sidebar { transform: translateX(-100%); transition: transform 0.25s ease; }
+      #sidebar.open { transform: translateX(0); box-shadow: 4px 0 24px rgba(0,0,0,0.5); }
+      #main-content { margin-left: 0; padding: 1rem 1.25rem; }
+      #mobile-topbar { display: flex !important; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Mobile top bar -->
+  <div id="mobile-topbar" class="align-items-center gap-2 px-3 py-2 sticky-top"
+       style="background:#12141a; border-bottom:1px solid rgba(255,255,255,0.06);">
+    <button class="btn btn-sm border-0 text-secondary"
+            onclick="document.getElementById('sidebar').classList.toggle('open')">
+      <i class="bi bi-list fs-4"></i>
+    </button>
+    <span class="text-white fw-semibold small">Comics Scraper</span>
+  </div>
+
+  <!-- Sidebar -->
+  <nav id="sidebar">
+    <div class="sidebar-logo">
+      <img src="/static/logo.svg" width="36" height="36" alt="Comics Scraper logo">
+      <div>
+        <div class="logo-text">Comics Scraper</div>
+        <div class="logo-sub">by nunobifes</div>
+      </div>
+    </div>
+
+    {% set path = request.url.path %}
+    <div class="sidebar-section-label">Library</div>
+    <ul class="nav sidebar-nav flex-column gap-1 flex-grow-1 mb-3">
+      <li>
+        <a href="/series"
+           class="nav-link {% if path == '/series' or (path.startswith('/series/') and path != '/series/add') %}active{% endif %}">
+          <i class="bi bi-collection-fill"></i> Series
+        </a>
+      </li>
+      <li>
+        <a href="/series/add"
+           class="nav-link {% if path == '/series/add' %}active{% endif %}">
+          <i class="bi bi-plus-circle-fill"></i> Add Series
+        </a>
+      </li>
+    </ul>
+
+    <div class="sidebar-footer">
+      <button class="theme-toggle" id="theme-toggle" onclick="toggleTheme()">
+        <i class="bi bi-moon-fill" id="theme-icon"></i>
+        <span id="theme-label">Dark Mode</span>
+      </button>
+    </div>
+  </nav>
+
+  <!-- Main -->
+  <div id="main-content">
+    {% if request.query_params.get('msg') %}
+    <div class="alert alert-success alert-dismissible fade show rounded-3 mb-4" role="alert">
+      <i class="bi bi-check-circle-fill me-2"></i>{{ request.query_params.get('msg') }}
+      <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>
+    {% endif %}
+    {% if request.query_params.get('error') %}
+    <div class="alert alert-danger alert-dismissible fade show rounded-3 mb-4" role="alert">
+      <i class="bi bi-exclamation-triangle-fill me-2"></i>{{ request.query_params.get('error') }}
+      <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>
+    {% endif %}
+    {% block content %}{% endblock %}
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script>
+    function applyTheme(theme) {
+      document.documentElement.setAttribute('data-bs-theme', theme);
+      document.getElementById('theme-icon').className  = theme === 'dark' ? 'bi bi-sun-fill' : 'bi bi-moon-fill';
+      document.getElementById('theme-label').textContent = theme === 'dark' ? 'Light Mode' : 'Dark Mode';
+      localStorage.setItem('cs-theme', theme);
+    }
+    function toggleTheme() {
+      applyTheme(document.documentElement.getAttribute('data-bs-theme') === 'dark' ? 'light' : 'dark');
+    }
+    const saved = localStorage.getItem('cs-theme')
+      || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+    applyTheme(saved);
+
+    document.addEventListener('click', function(e) {
+      const sidebar = document.getElementById('sidebar');
+      const topbar  = document.getElementById('mobile-topbar');
+      if (sidebar.classList.contains('open') && !sidebar.contains(e.target) && !topbar.contains(e.target)) {
+        sidebar.classList.remove('open');
+      }
+    });
+  </script>
+</body>
+</html>

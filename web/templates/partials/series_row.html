@@ -1,0 +1,47 @@
+<tr id="series-row-{{ s.id }}">
+  <td class="ps-4">
+    <div class="fw-semibold">{{ s.series_name }}</div>
+    <div class="text-muted small">{{ s.publisher }}</div>
+  </td>
+  <td class="text-muted">{{ s.year or '&#8212;' }}</td>
+  <td>
+    {% if s.metron_series_id %}
+    <code class="small" style="color:#5b8dd9;">{{ s.metron_series_id }}</code>
+    {% else %}<span class="text-muted">&#8212;</span>{% endif %}
+  </td>
+  <td>
+    {% if s.comicvine_volume_id %}
+    <code class="small">{{ s.comicvine_volume_id }}</code>
+    {% else %}<span class="text-muted">&#8212;</span>{% endif %}
+  </td>
+  <td class="text-muted small">{{ s.getcomics_search_name or '&#8212;' }}</td>
+  <td>
+    {% if s.enabled %}
+    <span class="badge badge-active">Active</span>
+    {% else %}
+    <span class="badge badge-paused">Paused</span>
+    {% endif %}
+  </td>
+  <td class="pe-3">
+    <div class="btn-group btn-group-sm">
+      <a href="/series/{{ s.id }}/edit" class="btn btn-outline-secondary" title="Edit">
+        <i class="bi bi-pencil"></i>
+      </a>
+      <button class="btn btn-outline-{{ 'warning' if s.enabled else 'success' }}"
+              hx-patch="/series/{{ s.id }}/toggle"
+              hx-target="#series-row-{{ s.id }}"
+              hx-swap="outerHTML"
+              title="{{ 'Pause' if s.enabled else 'Resume' }}">
+        <i class="bi bi-{{ 'pause-fill' if s.enabled else 'play-fill' }}"></i>
+      </button>
+      <button class="btn btn-outline-danger"
+              hx-delete="/series/{{ s.id }}"
+              hx-target="#series-row-{{ s.id }}"
+              hx-swap="delete"
+              hx-confirm="Delete {{ s.series_name }}?"
+              title="Delete">
+        <i class="bi bi-trash3"></i>
+      </button>
+    </div>
+  </td>
+</tr>

@@ -1,0 +1,24 @@
+{% if comics %}
+<div class="border rounded-3 p-3">
+  <div class="d-flex align-items-center gap-2 mb-2">
+    <span class="badge bg-success">
+      <i class="bi bi-check-lg me-1"></i>{{ comics|length }} result(s)
+    </span>
+    <span class="text-muted small">for "{{ search_term }}" on getcomics.org (page 1)</span>
+  </div>
+  <ul class="list-unstyled mb-0 small">
+    {% for c in comics %}
+    <li class="py-1 {% if not loop.last %}border-bottom border-opacity-10{% endif %}">
+      <a href="{{ c.url }}" target="_blank" rel="noopener noreferrer" class="text-decoration-none">
+        <i class="bi bi-box-arrow-up-right me-1 text-muted"></i>{{ c.title }}
+      </a>
+    </li>
+    {% endfor %}
+  </ul>
+</div>
+{% else %}
+<div class="alert alert-warning rounded-3 py-2 px-3 mb-0 small">
+  <i class="bi bi-exclamation-triangle me-1"></i>
+  No results for "<strong>{{ search_term }}</strong>" on getcomics.org. Try a different name.
+</div>
+{% endif %}

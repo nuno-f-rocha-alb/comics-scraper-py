@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Add Series — Comics Scraper{% endblock %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <div>
+    <h4 class="fw-bold mb-0">Add Series</h4>
+    <p class="text-muted small mb-0">Search Metron to add a new series</p>
+  </div>
+  <a href="/series" class="btn btn-outline-secondary btn-sm">
+    <i class="bi bi-arrow-left me-1"></i>Back
+  </a>
+</div>
+
+<div class="card">
+  <div class="card-body p-4">
+    <div class="position-relative mb-2">
+      <i class="bi bi-search position-absolute"
+         style="top:50%; left:1rem; transform:translateY(-50%); color:#8a95a8; z-index:5;"></i>
+      <input type="text"
+             class="form-control form-control-lg ps-5"
+             name="name"
+             placeholder="Search by series name…"
+             autocomplete="off"
+             hx-get="/api/metron/search"
+             hx-trigger="keyup changed delay:400ms"
+             hx-target="#search-area"
+             hx-params="*"
+             style="border-radius:10px;">
+    </div>
+
+    <div id="search-area">
+      <p class="text-muted text-center py-4 mb-0">
+        <i class="bi bi-search me-1"></i>Type a series name to search.
+      </p>
+    </div>
+  </div>
+</div>
+
+{% endblock %}

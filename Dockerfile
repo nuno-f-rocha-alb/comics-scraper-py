@@ -28,5 +28,6 @@ RUN chmod 755 */
 
 RUN ls -althr
 
-# Command to run the script (change script_name.py to your actual script filename)
-CMD ["python", "main.py"]
+EXPOSE 8000
+
+CMD ["python", "entrypoint.py"]

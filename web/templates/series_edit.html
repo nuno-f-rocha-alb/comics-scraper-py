@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block title %}Edit {{ s.series_name }} — Comics Scraper{% endblock %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <div>
+    <h4 class="fw-bold mb-0">Edit Series</h4>
+    <p class="text-muted small mb-0">{{ s.publisher }} &middot; {{ s.series_name }}</p>
+  </div>
+  <a href="/series" class="btn btn-outline-secondary btn-sm">
+    <i class="bi bi-arrow-left me-1"></i>Back
+  </a>
+</div>
+
+<div class="card">
+  <div class="card-body p-4">
+    <form action="/series/{{ s.id }}/update" method="post">
+      <div class="row g-3">
+        <div class="col-md-6">
+          <label class="form-label fw-medium">Publisher</label>
+          <input type="text" class="form-control" name="publisher" value="{{ s.publisher }}" required>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label fw-medium">Series Name</label>
+          <input type="text" class="form-control" name="series_name" value="{{ s.series_name }}" required>
+        </div>
+        <div class="col-md-3">
+          <label class="form-label fw-medium">Year</label>
+          <input type="number" class="form-control" name="year" value="{{ s.year or '' }}">
+        </div>
+        <div class="col-md-3">
+          <label class="form-label fw-medium">Metron Series ID</label>
+          <input type="number" class="form-control" name="metron_series_id" value="{{ s.metron_series_id or '' }}">
+        </div>
+        <div class="col-md-3">
+          <label class="form-label fw-medium">CV Volume ID</label>
+          <input type="number" class="form-control" name="comicvine_volume_id" value="{{ s.comicvine_volume_id or '' }}">
+        </div>
+        <div class="col-md-3">
+          <label class="form-label fw-medium">Annual CV ID</label>
+          <input type="number" class="form-control" name="annual_comicvine_volume_id" value="{{ s.annual_comicvine_volume_id or '' }}">
+        </div>
+        <div class="col-12">
+          <label class="form-label fw-medium">
+            getcomics.org Search Name
+            <span class="text-muted fw-normal">&#8212; optional override</span>
+          </label>
+          <div class="input-group">
+            <input type="text" class="form-control" name="getcomics_search_name"
+                   value="{{ s.getcomics_search_name or '' }}"
+                   placeholder="{{ s.series_name }}">
+            <button type="button" class="btn btn-outline-secondary"
+                    hx-get="/api/verify-search"
+                    hx-include="[name='series_name'],[name='getcomics_search_name']"
+                    hx-target="#verify-results"
+                    hx-swap="innerHTML"
+                    hx-indicator="#verify-spinner">
+              <span id="verify-spinner" class="htmx-indicator spinner-border spinner-border-sm me-1"></span>
+              <i class="bi bi-search me-1"></i>Verify
+            </button>
+          </div>
+          <div id="verify-results" class="mt-2"></div>
+          <div class="form-text">Only set if the title on getcomics.org differs from the series name above.</div>
+        </div>
+      </div>
+      <div class="d-flex gap-2 mt-4">
+        <button type="submit" class="btn btn-primary px-4">
+          <i class="bi bi-check-lg me-1"></i>Save Changes
+        </button>
+        <a href="/series" class="btn btn-outline-secondary">Cancel</a>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% endblock %}

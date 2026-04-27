@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Series — Comics Scraper{% endblock %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <div>
+    <h4 class="fw-bold mb-0">Series</h4>
+    <p class="text-muted small mb-0">{{ series|length }} series tracked</p>
+  </div>
+  <a class="btn btn-primary" href="/series/add">
+    <i class="bi bi-plus-lg me-1"></i>Add Series
+  </a>
+</div>
+
+{% if not series %}
+<div class="card text-center py-5">
+  <div class="card-body">
+    <i class="bi bi-collection" style="font-size:3rem; color:#5b8dd9; opacity:0.5;"></i>
+    <h5 class="mt-3 mb-1 fw-semibold">No series yet</h5>
+    <p class="text-muted mb-3">Start tracking a series from Metron.</p>
+    <a href="/series/add" class="btn btn-primary">
+      <i class="bi bi-plus-lg me-1"></i>Add Series
+    </a>
+  </div>
+</div>
+
+{% else %}
+<div class="card table-card">
+  <table class="table table-hover align-middle mb-0">
+    <thead>
+      <tr>
+        <th class="ps-4">Series</th>
+        <th>Year</th>
+        <th>Metron</th>
+        <th>CV ID</th>
+        <th>Search Name</th>
+        <th>Status</th>
+        <th class="pe-3"></th>
+      </tr>
+    </thead>
+    <tbody id="series-tbody">
+      {% for s in series %}
+        {% include "partials/series_row.html" %}
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+{% endblock %}
