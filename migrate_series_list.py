@@ -73,8 +73,7 @@ def main():
             stmt = (
                 sqlite_insert(Series)
                 .values(**e)
-                .on_conflict_do_nothing(index_elements=None,
-                                        constraint="uq_series")
+                .on_conflict_do_nothing()
             )
             result = session.execute(stmt)
             if result.rowcount:
