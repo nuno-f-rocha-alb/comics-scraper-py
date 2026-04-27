@@ -1,7 +1,7 @@
 import os
 import re
 from contextlib import asynccontextmanager
-from datetime import date
+from datetime import date, datetime, timezone
 from urllib.parse import quote
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Request, Response
@@ -11,7 +11,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from web.database import SessionLocal, init_db
-from web.models import Series
+from web.models import MetronCache, Series
 
 COMICS_BASE_DIR = os.getenv("COMICS_BASE_DIR", "/app/comics")
 
@@ -147,6 +147,76 @@ def _build_issue_list(raw: list[dict], local_nums: set[str]) -> list[dict]:
     return issues
 
 
+# ── Metron local cache helpers ────────────────────────────────────────────────
+
+def _extract_img(raw) -> str:
+    """Normalise Metron image field — may be a URL string or a dict."""
+    if isinstance(raw, str):
+        return raw
+    if isinstance(raw, dict):
+        return raw.get("original") or raw.get("medium") or raw.get("thumbnail") or ""
+    return ""
+
+
+def _ensure_cover_cached(metron_id: int, db: Session) -> str | None:
+    """Return image URL from local cache; fetches from Metron on first access.
+
+    image_url="" means tried + nothing found. image_url=None means not yet tried.
+    """
+    cached = db.get(MetronCache, metron_id)
+    if cached is not None and cached.image_url is not None:
+        return cached.image_url or None
+
+    from config import METRON_BASE_URL
+    from metadata.metron_client import get as metron_get
+
+    img = ""
+    fields: dict = {}
+    try:
+        r = metron_get(f"{METRON_BASE_URL}/series/{metron_id}/")
+        data = r.json()
+        img = _extract_img(data.get("image")) or ""
+        pub = data.get("publisher") or {}
+        st = data.get("series_type") or {}
+        fields = {
+            "name": data.get("name") or data.get("series"),
+            "publisher_name": pub.get("name") if isinstance(pub, dict) else None,
+            "year_began": data.get("year_began"),
+            "issue_count": data.get("issue_count"),
+            "cv_id": data.get("cv_id"),
+            "series_type": st.get("name") if isinstance(st, dict) else None,
+        }
+        if not img:
+            r2 = metron_get(
+                f"{METRON_BASE_URL}/issue/",
+                series_id=metron_id,
+                ordering="number",
+                limit=1,
+            )
+            issues = r2.json().get("results", [])
+            if issues:
+                img = _extract_img(issues[0].get("image")) or ""
+    except Exception:
+        pass
+
+    now = datetime.now(timezone.utc)
+    if cached is None:
+        db.add(MetronCache(
+            metron_id=metron_id,
+            image_url=img,
+            cached_at=now,
+            **{k: v for k, v in fields.items() if v is not None},
+        ))
+    else:
+        cached.image_url = img
+        cached.cached_at = now
+        for k, v in fields.items():
+            if v is not None:
+                setattr(cached, k, v)
+    db.commit()
+    return img or None
+
+
 # ── Health / JSON API ──────────────────────────────────────────────────────────
 
 @app.get("/health")
@@ -179,7 +249,7 @@ def api_list_series(db: Session = Depends(get_db)):
 # ── Metron search proxy ────────────────────────────────────────────────────────
 
 @app.get("/api/metron/search", response_class=HTMLResponse)
-def metron_search(request: Request, name: str = ""):
+def metron_search(request: Request, name: str = "", db: Session = Depends(get_db)):
     if len(name.strip()) < 2:
         return HTMLResponse("")
     try:
@@ -187,9 +257,23 @@ def metron_search(request: Request, name: str = ""):
         from metadata.metron_client import get as metron_get
         r = metron_get(f"{METRON_BASE_URL}/series/", name=name.strip())
         results = r.json().get("results", [])
+        uncached_ids: list[int] = []
+        if results:
+            ids = [s["id"] for s in results if s.get("id")]
+            cached_map = {
+                c.metron_id: c
+                for c in db.query(MetronCache).filter(MetronCache.metron_id.in_(ids)).all()
+            }
+            for s in results:
+                sid = s.get("id")
+                c = cached_map.get(sid)
+                if c and c.image_url:
+                    s["image"] = c.image_url
+                elif not _extract_img(s.get("image")):
+                    uncached_ids.append(sid)
         return templates.TemplateResponse(
             "partials/metron_results.html",
-            {"request": request, "results": results, "query": name},
+            {"request": request, "results": results, "query": name, "uncached_ids": uncached_ids},
         )
     except Exception as exc:
         return HTMLResponse(
@@ -198,7 +282,7 @@ def metron_search(request: Request, name: str = ""):
 
 
 @app.get("/api/metron/search-pick", response_class=HTMLResponse)
-def metron_search_pick(request: Request, name: str = "", field: str = ""):
+def metron_search_pick(request: Request, name: str = "", field: str = "", db: Session = Depends(get_db)):
     if len(name.strip()) < 2:
         return HTMLResponse("")
     try:
@@ -217,33 +301,93 @@ def metron_search_pick(request: Request, name: str = "", field: str = ""):
 
 
 @app.get("/api/metron/series/{metron_id}/cover", response_class=HTMLResponse)
-def metron_series_cover(metron_id: int):
-    try:
-        from config import METRON_BASE_URL
-        from metadata.metron_client import get as metron_get
-
-        r = metron_get(f"{METRON_BASE_URL}/series/{metron_id}/")
-        data = r.json()
-        img = data.get("image") or ""
-        if not (isinstance(img, str) and img):
-            r2 = metron_get(
-                f"{METRON_BASE_URL}/issue/",
-                series_id=metron_id,
-                ordering="number",
-                limit=1,
-            )
-            issues = r2.json().get("results", [])
-            if issues:
-                img2 = issues[0].get("image") or ""
-                img = img2 if isinstance(img2, str) and img2 else ""
-
-        if img:
-            return HTMLResponse(
-                f'<img src="{img}" class="cover-img" alt="">'
-            )
-    except Exception:
-        pass
+def metron_series_cover(metron_id: int, db: Session = Depends(get_db)):
+    img = _ensure_cover_cached(metron_id, db)
+    if img:
+        return HTMLResponse(f'<img src="{img}" class="cover-img" alt="">')
     return HTMLResponse('<div class="cover-placeholder"><i class="bi bi-book"></i></div>')
+
+
+@app.get("/api/metron/batch-covers", response_class=HTMLResponse)
+def metron_batch_covers(ids: str = "", db: Session = Depends(get_db)):
+    """Fetch/cache covers for multiple series; returns HTMX OOB swap fragments."""
+    if not ids:
+        return HTMLResponse("")
+    id_list = [int(x) for x in ids.split(",") if x.strip().isdigit()]
+    parts: list[str] = []
+    for mid in id_list:
+        img = _ensure_cover_cached(mid, db)
+        if img:
+            parts.append(
+                f'<img id="cover-{mid}" src="{img}" class="cover-img" alt="" hx-swap-oob="true">'
+            )
+        else:
+            parts.append(
+                f'<div id="cover-{mid}" class="cover-placeholder" hx-swap-oob="true">'
+                f'<i class="bi bi-book"></i></div>'
+            )
+    return HTMLResponse("\n".join(parts))
+
+
+@app.post("/api/metron/cache/refresh")
+def metron_cache_refresh(db: Session = Depends(get_db)):
+    """Paginate all Metron series and upsert metadata into local cache."""
+    from config import METRON_BASE_URL
+    from metadata.metron_client import get as metron_get
+
+    url = f"{METRON_BASE_URL}/series/"
+    added = updated = 0
+
+    while url:
+        try:
+            r = metron_get(url)
+            data = r.json()
+        except Exception as exc:
+            msg = f"Cache refresh stopped ({added} new, {updated} updated): {exc}"
+            return RedirectResponse(url=f"/series?msg={quote(msg)}", status_code=303)
+
+        now = datetime.now(timezone.utc)
+        for s in data.get("results", []):
+            mid = s.get("id")
+            if not mid:
+                continue
+            pub = s.get("publisher") or {}
+            st = s.get("series_type") or {}
+            existing = db.get(MetronCache, mid)
+            if existing is None:
+                db.add(MetronCache(
+                    metron_id=mid,
+                    name=s.get("name") or s.get("series"),
+                    publisher_name=pub.get("name") if isinstance(pub, dict) else None,
+                    year_began=s.get("year_began"),
+                    issue_count=s.get("issue_count"),
+                    series_type=st.get("name") if isinstance(st, dict) else None,
+                    cv_id=None,
+                    image_url=None,  # populated lazily on first cover request
+                    cached_at=now,
+                ))
+                added += 1
+            else:
+                if s.get("name") or s.get("series"):
+                    existing.name = s.get("name") or s.get("series")
+                pub_name = pub.get("name") if isinstance(pub, dict) else None
+                if pub_name:
+                    existing.publisher_name = pub_name
+                if s.get("year_began"):
+                    existing.year_began = s["year_began"]
+                if s.get("issue_count"):
+                    existing.issue_count = s["issue_count"]
+                st_name = st.get("name") if isinstance(st, dict) else None
+                if st_name:
+                    existing.series_type = st_name
+                existing.cached_at = now
+                updated += 1
+
+        db.commit()
+        url = data.get("next")
+
+    msg = f"Metron cache refreshed: {added} new, {updated} updated."
+    return RedirectResponse(url=f"/series?msg={quote(msg)}", status_code=303)
 
 
 @app.get("/api/metron/series/{metron_id}/add-form", response_class=HTMLResponse)

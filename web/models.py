@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from sqlalchemy import Boolean, DateTime, Integer, String, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, Index, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 from web.database import Base
 
@@ -50,3 +50,21 @@ class Series(Base):
 
     def __repr__(self) -> str:
         return f"<Series {self.publisher}/{self.series_name} ({self.year})>"
+
+
+class MetronCache(Base):
+    """Local mirror of Metron series metadata — avoids repeated API calls."""
+    __tablename__ = "metron_cache"
+    __table_args__ = (Index("ix_metron_cache_name", "name"),)
+
+    metron_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str | None] = mapped_column(String, nullable=True)
+    publisher_name: Mapped[str | None] = mapped_column(String, nullable=True)
+    year_began: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    issue_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    series_type: Mapped[str | None] = mapped_column(String, nullable=True)
+    cv_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    image_url: Mapped[str | None] = mapped_column(String, nullable=True)
+    cached_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
+    )

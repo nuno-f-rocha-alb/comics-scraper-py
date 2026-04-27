@@ -3,7 +3,12 @@
   <i class="bi bi-emoji-frown me-1"></i>No results for "<strong>{{ query }}</strong>".
 </div>
 {% else %}
-<div class="row g-3">
+<div class="row g-3"
+  {% if uncached_ids %}
+  hx-get="/api/metron/batch-covers?ids={{ uncached_ids | join(',') }}"
+  hx-trigger="load"
+  hx-swap="none"
+  {% endif %}>
   {% for s in results %}
   <div class="col-12 col-sm-6 col-xl-4">
     <div class="card h-100" style="border-radius:10px !important;">
@@ -12,10 +17,7 @@
         {% if s.image %}
         <img src="{{ s.image }}" alt="{{ display_name }}" class="cover-img">
         {% else %}
-        <div class="cover-placeholder"
-             hx-get="/api/metron/series/{{ s.id }}/cover"
-             hx-trigger="load"
-             hx-swap="outerHTML">
+        <div id="cover-{{ s.id }}" class="cover-placeholder">
           <i class="bi bi-book"></i>
         </div>
         {% endif %}
