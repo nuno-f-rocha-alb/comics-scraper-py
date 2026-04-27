@@ -8,14 +8,15 @@
   <div class="col-12 col-sm-6 col-xl-4">
     <div class="card h-100" style="border-radius:10px !important;">
       <div class="card-body d-flex gap-3 p-3">
+        {% set display_name = s.name or s.series or '' %}
         {% if s.image %}
-        <img src="{{ s.image }}" alt="{{ s.name }}" class="cover-img">
+        <img src="{{ s.image }}" alt="{{ display_name }}" class="cover-img">
         {% else %}
         <div class="cover-placeholder"><i class="bi bi-book"></i></div>
         {% endif %}
         <div class="overflow-hidden d-flex flex-column min-w-0">
-          <h6 class="fw-semibold text-truncate mb-1" title="{{ s.name }}">{{ s.name }}</h6>
-          <p class="text-muted small mb-1">{{ s.publisher.name if s.publisher else '&#8212;' }}</p>
+          <h6 class="fw-semibold text-truncate mb-1" title="{{ display_name }}">{{ display_name }}</h6>
+          <p class="text-muted small mb-1">{{ s.publisher.name if s.publisher else '—' }}</p>
           <p class="text-muted small mb-auto">
             {% if s.year_began %}{{ s.year_began }}{% endif %}
             {% if s.issue_count %} &middot; {{ s.issue_count }} issues{% endif %}

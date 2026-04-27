@@ -267,6 +267,18 @@ def sync_covers(db: Session = Depends(get_db)):
                 # Backfill CV ID if missing
                 if not s.comicvine_volume_id and data.get("cv_id"):
                     s.comicvine_volume_id = data["cv_id"]
+                # Fallback: use first issue cover if series has no image
+                if not s.cover_image_url:
+                    r2 = metron_get(
+                        f"{METRON_BASE_URL}/issue/",
+                        series_id=s.metron_series_id,
+                        ordering="number",
+                        limit=1,
+                    )
+                    issues = r2.json().get("results", [])
+                    if issues:
+                        img2 = issues[0].get("image") or ""
+                        s.cover_image_url = img2 if isinstance(img2, str) and img2 else None
                 updated_covers += 1
             except Exception:
                 pass
