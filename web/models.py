@@ -22,6 +22,8 @@ class Series(Base):
     # Override the search term used on getcomics.org (defaults to series_name at query time)
     getcomics_search_name: Mapped[str | None] = mapped_column(String, nullable=True)
 
+    metron_annual_series_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
     cover_image_url: Mapped[str | None] = mapped_column(String, nullable=True)
     total_issues: Mapped[int | None] = mapped_column(Integer, nullable=True)
 

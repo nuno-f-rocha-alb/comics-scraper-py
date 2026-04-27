@@ -7,7 +7,7 @@
     <h4 class="fw-bold mb-0">Edit Series</h4>
     <p class="text-muted small mb-0">{{ s.publisher }} &middot; {{ s.series_name }}</p>
   </div>
-  <a href="/series" class="btn btn-outline-secondary btn-sm">
+  <a href="/series/{{ s.id }}" class="btn btn-outline-secondary btn-sm">
     <i class="bi bi-arrow-left me-1"></i>Back
   </a>
 </div>
@@ -16,6 +16,8 @@
   <div class="card-body p-4">
     <form action="/series/{{ s.id }}/update" method="post">
       <div class="row g-3">
+
+        <!-- Core fields -->
         <div class="col-md-6">
           <label class="form-label fw-medium">Publisher</label>
           <input type="text" class="form-control" name="publisher" value="{{ s.publisher }}" required>
@@ -28,6 +30,8 @@
           <label class="form-label fw-medium">Year</label>
           <input type="number" class="form-control" name="year" value="{{ s.year or '' }}">
         </div>
+
+        <!-- IDs -->
         <div class="col-md-3">
           <label class="form-label fw-medium">Metron Series ID</label>
           <input type="number" class="form-control" name="metron_series_id" value="{{ s.metron_series_id or '' }}">
@@ -40,6 +44,38 @@
           <label class="form-label fw-medium">Annual CV ID</label>
           <input type="number" class="form-control" name="annual_comicvine_volume_id" value="{{ s.annual_comicvine_volume_id or '' }}">
         </div>
+
+        <!-- Metron Annual Series ID with inline search -->
+        <div class="col-12">
+          <label class="form-label fw-medium">
+            Metron Annual Series ID
+            <span class="text-muted fw-normal small">&#8212; optional, for tracking annuals separately</span>
+          </label>
+          <div class="input-group" style="max-width:360px;">
+            <input type="number" class="form-control" name="metron_annual_series_id"
+                   id="metron_annual_series_id" value="{{ s.metron_annual_series_id or '' }}">
+            <button type="button" class="btn btn-outline-secondary"
+                    data-bs-toggle="collapse" data-bs-target="#annual-search-area"
+                    aria-expanded="false">
+              <i class="bi bi-search"></i>
+            </button>
+          </div>
+          <div class="collapse mt-2" id="annual-search-area" style="max-width:480px;">
+            <input type="text" class="form-control form-control-sm"
+                   placeholder="Search Metron for the annual series…"
+                   hx-get="/api/metron/search-pick?field=metron_annual_series_id"
+                   hx-trigger="input changed delay:400ms"
+                   hx-target="#annual-pick-results"
+                   hx-swap="innerHTML"
+                   name="name">
+            <div id="annual-pick-results" class="mt-1"></div>
+          </div>
+          <div class="form-text">
+            Search for and select the Metron ID of the annual series (e.g. "Spawn Annual").
+          </div>
+        </div>
+
+        <!-- getcomics search name -->
         <div class="col-12">
           <label class="form-label fw-medium">
             getcomics.org Search Name
@@ -62,12 +98,13 @@
           <div id="verify-results" class="mt-2"></div>
           <div class="form-text">Only set if the title on getcomics.org differs from the series name above.</div>
         </div>
+
       </div>
       <div class="d-flex gap-2 mt-4">
         <button type="submit" class="btn btn-primary px-4">
           <i class="bi bi-check-lg me-1"></i>Save Changes
         </button>
-        <a href="/series" class="btn btn-outline-secondary">Cancel</a>
+        <a href="/series/{{ s.id }}" class="btn btn-outline-secondary">Cancel</a>
       </div>
     </form>
   </div>

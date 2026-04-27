@@ -1,9 +1,4 @@
-{% if not issues %}
-<div class="p-5 text-center text-muted">
-  <i class="bi bi-inbox fs-2 d-block mb-2 opacity-50"></i>
-  No issues found on Metron for this series.
-</div>
-{% else %}
+{% macro issue_table(issues) %}
 <div class="table-responsive">
   <table class="table table-hover align-middle mb-0">
     <thead>
@@ -11,7 +6,7 @@
         <th class="ps-4" style="width:64px;">#</th>
         <th>Title</th>
         <th style="width:130px;">Date</th>
-        <th style="width:140px;">Status</th>
+        <th style="width:148px;">Status</th>
       </tr>
     </thead>
     <tbody>
@@ -44,4 +39,27 @@
     </tbody>
   </table>
 </div>
+{% endmacro %}
+
+{% if not regular_issues and not annual_issues %}
+<div class="p-5 text-center text-muted">
+  <i class="bi bi-inbox fs-2 d-block mb-2 opacity-50"></i>
+  No issues found on Metron for this series.
+</div>
+{% else %}
+
+{{ issue_table(regular_issues) }}
+
+{% if annual_issues %}
+<div class="border-top d-flex align-items-center gap-2 px-4 py-2"
+     style="background:rgba(91,141,217,0.05);">
+  <i class="bi bi-calendar-star text-muted small"></i>
+  <span class="fw-semibold small">Annuals</span>
+  <span class="badge ms-1" style="background:rgba(91,141,217,0.15); color:#5b8dd9; font-size:0.65rem;">
+    {{ annual_issues | length }}
+  </span>
+</div>
+{{ issue_table(annual_issues) }}
+{% endif %}
+
 {% endif %}

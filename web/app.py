@@ -59,7 +59,10 @@ def _count_local_issues(s: Series) -> int:
     path = os.path.join(COMICS_BASE_DIR, s.publisher, f"{s.series_name} ({s.year})")
     if not os.path.isdir(path):
         return 0
-    return sum(1 for f in os.listdir(path) if f.lower().endswith((".cbz", ".cbr")))
+    return sum(
+        1 for f in os.listdir(path)
+        if f.lower().endswith((".cbz", ".cbr")) and "annual" not in f.lower()
+    )
 
 
 def _local_issue_numbers(s: Series) -> set[str]:
@@ -68,13 +71,33 @@ def _local_issue_numbers(s: Series) -> set[str]:
         return set()
     nums: set[str] = set()
     for f in os.listdir(path):
-        if f.lower().endswith((".cbz", ".cbr")):
-            m = re.search(r"#(\d+(?:\.\d+)?)", f)
-            if m:
-                try:
-                    nums.add(str(int(float(m.group(1)))))
-                except ValueError:
-                    pass
+        fname = f.lower()
+        if not fname.endswith((".cbz", ".cbr")) or "annual" in fname:
+            continue
+        m = re.search(r"#(\d+(?:\.\d+)?)", f)
+        if m:
+            try:
+                nums.add(str(int(float(m.group(1)))))
+            except ValueError:
+                pass
+    return nums
+
+
+def _local_annual_issue_numbers(s: Series) -> set[str]:
+    path = os.path.join(COMICS_BASE_DIR, s.publisher, f"{s.series_name} ({s.year})")
+    if not os.path.isdir(path):
+        return set()
+    nums: set[str] = set()
+    for f in os.listdir(path):
+        fname = f.lower()
+        if not fname.endswith((".cbz", ".cbr")) or "annual" not in fname:
+            continue
+        m = re.search(r"#(\d+(?:\.\d+)?)", f)
+        if m:
+            try:
+                nums.add(str(int(float(m.group(1)))))
+            except ValueError:
+                pass
     return nums
 
 
@@ -89,6 +112,49 @@ def _fetch_metron_issues(metron_series_id: int) -> list[dict]:
         data = r.json()
         issues.extend(data.get("results", []))
         url = data.get("next")
+    return issues
+
+
+def _build_issue_list(raw: list[dict], local_nums: set[str]) -> list[dict]:
+    today = date.today()
+    issues = []
+    for issue in raw:
+        num_str = str(issue.get("number", ""))
+        try:
+            normalized = str(int(float(num_str))) if num_str else ""
+        except (ValueError, TypeError):
+            normalized = num_str
+
+        date_str = issue.get("cover_date") or issue.get("store_date") or ""
+        issue_date = None
+        if date_str:
+            try:
+                issue_date = date.fromisoformat(str(date_str)[:10])
+            except ValueError:
+                pass
+
+        if normalized in local_nums:
+            status = "downloaded"
+        elif issue_date and issue_date > today:
+            status = "upcoming"
+        elif issue_date:
+            status = "missing"
+        else:
+            status = "tba"
+
+        image_raw = issue.get("image") or ""
+        cover = image_raw if isinstance(image_raw, str) else (image_raw.get("medium") or "")
+
+        name_raw = issue.get("issue_name") or issue.get("name") or ""
+        title = ", ".join(name_raw) if isinstance(name_raw, list) else name_raw
+
+        issues.append({
+            "number": num_str,
+            "title": title,
+            "date": str(date_str)[:10] if date_str else "",
+            "cover": cover,
+            "status": status,
+        })
     return issues
 
 
@@ -110,6 +176,7 @@ def api_list_series(db: Session = Depends(get_db)):
             "year": s.year,
             "comicvine_volume_id": s.comicvine_volume_id,
             "metron_series_id": s.metron_series_id,
+            "metron_annual_series_id": s.metron_annual_series_id,
             "annual_comicvine_volume_id": s.annual_comicvine_volume_id,
             "getcomics_search_name": s.getcomics_search_name,
             "enabled": s.enabled,
@@ -120,7 +187,7 @@ def api_list_series(db: Session = Depends(get_db)):
     ]
 
 
-# ── Metron search proxy (HTMX partials) ───────────────────────────────────────
+# ── Metron search proxy ────────────────────────────────────────────────────────
 
 @app.get("/api/metron/search", response_class=HTMLResponse)
 def metron_search(request: Request, name: str = ""):
@@ -141,6 +208,25 @@ def metron_search(request: Request, name: str = ""):
         )
 
 
+@app.get("/api/metron/search-pick", response_class=HTMLResponse)
+def metron_search_pick(request: Request, name: str = "", field: str = ""):
+    if len(name.strip()) < 2:
+        return HTMLResponse("")
+    try:
+        from config import METRON_BASE_URL
+        from metadata.metron_client import get as metron_get
+        r = metron_get(f"{METRON_BASE_URL}/series/", name=name.strip())
+        results = r.json().get("results", [])
+        return templates.TemplateResponse(
+            "partials/metron_pick_results.html",
+            {"request": request, "results": results, "field": field},
+        )
+    except Exception as exc:
+        return HTMLResponse(
+            f'<div class="alert alert-danger mt-2 small">Search error: {exc}</div>'
+        )
+
+
 @app.get("/api/metron/series/{metron_id}/add-form", response_class=HTMLResponse)
 def metron_series_add_form(request: Request, metron_id: int):
     try:
@@ -158,34 +244,52 @@ def metron_series_add_form(request: Request, metron_id: int):
         )
 
 
-# ── Cover sync ─────────────────────────────────────────────────────────────────
+# ── Cover + ID sync ────────────────────────────────────────────────────────────
 
 @app.post("/api/sync-covers")
 def sync_covers(db: Session = Depends(get_db)):
     from config import METRON_BASE_URL
     from metadata.metron_client import get as metron_get
 
-    rows = db.query(Series).filter(
-        Series.metron_series_id.isnot(None),
-        Series.cover_image_url.is_(None),
-    ).all()
+    rows = db.query(Series).all()
+    found_ids = 0
+    updated_covers = 0
 
-    updated = 0
     for s in rows:
-        try:
-            r = metron_get(f"{METRON_BASE_URL}/series/{s.metron_series_id}/")
-            data = r.json()
-            s.cover_image_url = data.get("image") or None
-            s.total_issues = data.get("issue_count") or None
-            updated += 1
-        except Exception:
-            pass
+        # Phase 1: auto-find metron_series_id from comicvine_volume_id
+        if not s.metron_series_id and s.comicvine_volume_id:
+            try:
+                r = metron_get(f"{METRON_BASE_URL}/series/", cv_id=s.comicvine_volume_id)
+                results = r.json().get("results", [])
+                if results:
+                    s.metron_series_id = results[0]["id"]
+                    found_ids += 1
+            except Exception:
+                pass
+
+        # Phase 2: fetch cover + issue count from Metron detail
+        if s.metron_series_id and not s.cover_image_url:
+            try:
+                r = metron_get(f"{METRON_BASE_URL}/series/{s.metron_series_id}/")
+                data = r.json()
+                img = data.get("image") or ""
+                s.cover_image_url = img if isinstance(img, str) and img else None
+                s.total_issues = data.get("issue_count") or None
+                # Backfill CV ID if missing
+                if not s.comicvine_volume_id and data.get("cv_id"):
+                    s.comicvine_volume_id = data["cv_id"]
+                updated_covers += 1
+            except Exception:
+                pass
 
     db.commit()
-    return RedirectResponse(
-        url=f"/series?msg=Covers synced for {updated} series.",
-        status_code=303,
-    )
+    parts = []
+    if found_ids:
+        parts.append(f"{found_ids} Metron IDs found via CV ID")
+    if updated_covers:
+        parts.append(f"{updated_covers} covers synced")
+    msg = ", ".join(parts) if parts else "Nothing to update."
+    return RedirectResponse(url=f"/series?msg={quote(msg)}", status_code=303)
 
 
 # ── Verify search ──────────────────────────────────────────────────────────────
@@ -251,6 +355,7 @@ def series_create(
     year: str = Form(""),
     comicvine_volume_id: str = Form(""),
     metron_series_id: str = Form(""),
+    metron_annual_series_id: str = Form(""),
     annual_comicvine_volume_id: str = Form(""),
     getcomics_search_name: str = Form(""),
     cover_image_url: str = Form(""),
@@ -262,6 +367,7 @@ def series_create(
         year=int(year) if year.strip() else None,
         comicvine_volume_id=int(comicvine_volume_id) if comicvine_volume_id.strip() else None,
         metron_series_id=int(metron_series_id) if metron_series_id.strip() else None,
+        metron_annual_series_id=int(metron_annual_series_id) if metron_annual_series_id.strip() else None,
         annual_comicvine_volume_id=int(annual_comicvine_volume_id) if annual_comicvine_volume_id.strip() else None,
         getcomics_search_name=getcomics_search_name.strip() or None,
         cover_image_url=cover_image_url.strip() or None,
@@ -292,6 +398,7 @@ def series_update(
     year: str = Form(""),
     comicvine_volume_id: str = Form(""),
     metron_series_id: str = Form(""),
+    metron_annual_series_id: str = Form(""),
     annual_comicvine_volume_id: str = Form(""),
     getcomics_search_name: str = Form(""),
 ):
@@ -303,11 +410,12 @@ def series_update(
     s.year = int(year) if year.strip() else None
     s.comicvine_volume_id = int(comicvine_volume_id) if comicvine_volume_id.strip() else None
     s.metron_series_id = int(metron_series_id) if metron_series_id.strip() else None
+    s.metron_annual_series_id = int(metron_annual_series_id) if metron_annual_series_id.strip() else None
     s.annual_comicvine_volume_id = int(annual_comicvine_volume_id) if annual_comicvine_volume_id.strip() else None
     s.getcomics_search_name = getcomics_search_name.strip() or None
     db.commit()
     return RedirectResponse(
-        url=f"/series?msg={quote(s.series_name + ' updated successfully.')}",
+        url=f"/series/{series_id}",
         status_code=303,
     )
 
@@ -367,54 +475,31 @@ def series_issues_partial(request: Request, series_id: int, db: Session = Depend
         )
 
     local_nums = _local_issue_numbers(s)
-    issues: list[dict] = []
+    local_annual_nums = _local_annual_issue_numbers(s) if s.metron_annual_series_id else set()
+
+    regular_issues: list[dict] = []
+    annual_issues: list[dict] = []
 
     try:
         raw = _fetch_metron_issues(s.metron_series_id)
-        today = date.today()
-        for issue in raw:
-            num_str = str(issue.get("number", ""))
-            try:
-                normalized = str(int(float(num_str))) if num_str else ""
-            except (ValueError, TypeError):
-                normalized = num_str
-
-            date_str = issue.get("cover_date") or issue.get("store_date") or ""
-            issue_date = None
-            if date_str:
-                try:
-                    issue_date = date.fromisoformat(str(date_str)[:10])
-                except ValueError:
-                    pass
-
-            if normalized in local_nums:
-                status = "downloaded"
-            elif issue_date and issue_date > today:
-                status = "upcoming"
-            elif issue_date:
-                status = "missing"
-            else:
-                status = "tba"
-
-            image_raw = issue.get("image") or ""
-            cover = image_raw if isinstance(image_raw, str) else (image_raw.get("medium") or "")
-
-            name_raw = issue.get("issue_name") or issue.get("name") or ""
-            title = ", ".join(name_raw) if isinstance(name_raw, list) else name_raw
-
-            issues.append({
-                "number": num_str,
-                "title": title,
-                "date": str(date_str)[:10] if date_str else "",
-                "cover": cover,
-                "status": status,
-            })
+        regular_issues = _build_issue_list(raw, local_nums)
     except Exception as exc:
         return HTMLResponse(
             f'<div class="alert alert-danger m-3">Error fetching issues from Metron: {exc}</div>'
         )
 
+    if s.metron_annual_series_id:
+        try:
+            raw_annual = _fetch_metron_issues(s.metron_annual_series_id)
+            annual_issues = _build_issue_list(raw_annual, local_annual_nums)
+        except Exception:
+            pass
+
     return templates.TemplateResponse(
         "partials/series_issues.html",
-        {"request": request, "issues": issues},
+        {
+            "request": request,
+            "regular_issues": regular_issues,
+            "annual_issues": annual_issues,
+        },
     )

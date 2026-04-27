@@ -1,0 +1,22 @@
+{% if results %}
+<div class="list-group shadow-sm" style="border-radius:8px; max-height:280px; overflow-y:auto;">
+  {% for s in results %}
+  <button type="button"
+          class="list-group-item list-group-item-action py-2 px-3 text-start"
+          style="font-size:0.82rem;"
+          onclick="document.getElementById('{{ field }}').value='{{ s.id }}';
+                   document.getElementById('annual-pick-results').innerHTML='';
+                   document.getElementById('annual-search-area').classList.remove('show');">
+    <span class="fw-semibold">{{ s.name }}</span>
+    <span class="text-muted ms-2">
+      {{ s.publisher.name if s.publisher else '' }}
+      {% if s.year_began %} · {{ s.year_began }}{% endif %}
+      {% if s.series_type %} · {{ s.series_type.name }}{% endif %}
+    </span>
+    <span class="badge bg-secondary float-end">#{{ s.id }}</span>
+  </button>
+  {% endfor %}
+</div>
+{% elif results is defined %}
+<p class="text-muted small mt-2 mb-0">No results found.</p>
+{% endif %}

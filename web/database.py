@@ -22,6 +22,8 @@ def migrate_columns():
             conn.execute(text("ALTER TABLE series ADD COLUMN cover_image_url TEXT"))
         if "total_issues" not in cols:
             conn.execute(text("ALTER TABLE series ADD COLUMN total_issues INTEGER"))
+        if "metron_annual_series_id" not in cols:
+            conn.execute(text("ALTER TABLE series ADD COLUMN metron_annual_series_id INTEGER"))
         conn.commit()
 
 
