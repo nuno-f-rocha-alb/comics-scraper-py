@@ -41,12 +41,7 @@
 </div>
 {% endmacro %}
 
-{% if not regular_issues and not annual_issues %}
-<div class="p-5 text-center text-muted">
-  <i class="bi bi-inbox fs-2 d-block mb-2 opacity-50"></i>
-  No issues found on Metron for this series.
-</div>
-{% else %}
+{% if regular_issues or annual_issues %}
 
 {{ issue_table(regular_issues) }}
 
@@ -62,4 +57,29 @@
 {{ issue_table(annual_issues) }}
 {% endif %}
 
+{% else %}
+<div class="p-5 text-center text-muted">
+  <i class="bi bi-inbox fs-2 d-block mb-2 opacity-50"></i>
+  No issues found on Metron for this series.
+</div>
 {% endif %}
+
+<div class="border-top px-4 py-2 d-flex align-items-center gap-2"
+     style="background:rgba(0,0,0,0.02); font-size:0.75rem;">
+  <i class="bi bi-database opacity-50"></i>
+  <span class="text-muted">
+    {% if cached_at %}
+    Cached {{ cached_at.strftime('%b %d, %Y') }}
+    {% else %}
+    Not cached
+    {% endif %}
+  </span>
+  <button class="btn btn-link btn-sm text-muted p-0 ms-auto"
+          style="font-size:0.75rem;"
+          hx-get="/series/{{ s.id }}/issues?force=1"
+          hx-target="#issues-container"
+          hx-swap="innerHTML"
+          hx-indicator="#issues-spinner">
+    <i class="bi bi-arrow-clockwise me-1"></i>Refresh from Metron
+  </button>
+</div>

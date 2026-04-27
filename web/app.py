@@ -11,7 +11,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from web.database import SessionLocal, init_db
-from web.models import MetronCache, Series
+from web.models import MetronCache, MetronIssueCache, Series
 
 COMICS_BASE_DIR = os.getenv("COMICS_BASE_DIR", "/app/comics")
 
@@ -145,6 +145,68 @@ def _build_issue_list(raw: list[dict], local_nums: set[str]) -> list[dict]:
             "status": status,
         })
     return issues
+
+
+_ISSUE_CACHE_DAYS = 7
+
+
+def _get_or_fetch_metron_issues(
+    metron_series_id: int, db: Session, *, force: bool = False
+) -> list[dict]:
+    """Return issues from local cache (if fresh) else fetch from Metron and store."""
+    from datetime import timedelta
+
+    if not force:
+        cutoff = datetime.utcnow() - timedelta(days=_ISSUE_CACHE_DAYS)
+        first = (
+            db.query(MetronIssueCache)
+            .filter(MetronIssueCache.series_id == metron_series_id)
+            .first()
+        )
+        if first and first.cached_at > cutoff:
+            rows = (
+                db.query(MetronIssueCache)
+                .filter(MetronIssueCache.series_id == metron_series_id)
+                .all()
+            )
+            return [
+                {
+                    "number": r.number,
+                    "cover_date": r.cover_date,
+                    "store_date": r.store_date,
+                    "image": r.image_url,
+                    "issue_name": r.name,
+                }
+                for r in rows
+            ]
+
+    raw = _fetch_metron_issues(metron_series_id)
+
+    db.query(MetronIssueCache).filter(
+        MetronIssueCache.series_id == metron_series_id
+    ).delete()
+
+    now = datetime.now(timezone.utc)
+    for issue in raw:
+        mid = issue.get("id")
+        if not mid:
+            continue
+        img_raw = issue.get("image") or ""
+        img = img_raw if isinstance(img_raw, str) else (img_raw.get("medium") or "")
+        name_raw = issue.get("issue_name") or issue.get("name") or ""
+        title = ", ".join(name_raw) if isinstance(name_raw, list) else str(name_raw)
+        db.add(MetronIssueCache(
+            metron_id=mid,
+            series_id=metron_series_id,
+            number=str(issue.get("number", "")),
+            name=title or None,
+            cover_date=str(issue.get("cover_date") or "")[:10] or None,
+            store_date=str(issue.get("store_date") or "")[:10] or None,
+            image_url=img or None,
+            cached_at=now,
+        ))
+    db.commit()
+    return raw
 
 
 # ── Metron local cache helpers ────────────────────────────────────────────────
@@ -639,7 +701,12 @@ def series_detail(request: Request, series_id: int, db: Session = Depends(get_db
 
 
 @app.get("/series/{series_id}/issues", response_class=HTMLResponse)
-def series_issues_partial(request: Request, series_id: int, db: Session = Depends(get_db)):
+def series_issues_partial(
+    request: Request,
+    series_id: int,
+    force: bool = False,
+    db: Session = Depends(get_db),
+):
     s = db.query(Series).filter(Series.id == series_id).first()
     if not s:
         raise HTTPException(status_code=404)
@@ -656,7 +723,7 @@ def series_issues_partial(request: Request, series_id: int, db: Session = Depend
     annual_issues: list[dict] = []
 
     try:
-        raw = _fetch_metron_issues(s.metron_series_id)
+        raw = _get_or_fetch_metron_issues(s.metron_series_id, db, force=force)
         regular_issues = _build_issue_list(raw, local_nums)
     except Exception as exc:
         return HTMLResponse(
@@ -665,16 +732,23 @@ def series_issues_partial(request: Request, series_id: int, db: Session = Depend
 
     if s.metron_annual_series_id:
         try:
-            raw_annual = _fetch_metron_issues(s.metron_annual_series_id)
+            raw_annual = _get_or_fetch_metron_issues(s.metron_annual_series_id, db, force=force)
             annual_issues = _build_issue_list(raw_annual, local_annual_nums)
         except Exception:
             pass
 
+    first = (
+        db.query(MetronIssueCache)
+        .filter(MetronIssueCache.series_id == s.metron_series_id)
+        .first()
+    )
     return templates.TemplateResponse(
         "partials/series_issues.html",
         {
             "request": request,
+            "s": s,
             "regular_issues": regular_issues,
             "annual_issues": annual_issues,
+            "cached_at": first.cached_at if first else None,
         },
     )

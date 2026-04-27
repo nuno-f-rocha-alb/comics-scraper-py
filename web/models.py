@@ -4,6 +4,8 @@ from sqlalchemy.orm import Mapped, mapped_column
 from web.database import Base
 
 
+
+
 class Series(Base):
     __tablename__ = "series"
     __table_args__ = (UniqueConstraint("publisher", "series_name", "year", name="uq_series"),)
@@ -64,6 +66,23 @@ class MetronCache(Base):
     issue_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     series_type: Mapped[str | None] = mapped_column(String, nullable=True)
     cv_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    image_url: Mapped[str | None] = mapped_column(String, nullable=True)
+    cached_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
+    )
+
+
+class MetronIssueCache(Base):
+    """Local mirror of Metron issue list per series — avoids repeated API calls."""
+    __tablename__ = "metron_issue_cache"
+    __table_args__ = (Index("ix_metron_issue_cache_series", "series_id"),)
+
+    metron_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    series_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    number: Mapped[str | None] = mapped_column(String, nullable=True)
+    name: Mapped[str | None] = mapped_column(String, nullable=True)
+    cover_date: Mapped[str | None] = mapped_column(String, nullable=True)
+    store_date: Mapped[str | None] = mapped_column(String, nullable=True)
     image_url: Mapped[str | None] = mapped_column(String, nullable=True)
     cached_at: Mapped[datetime] = mapped_column(
         DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
