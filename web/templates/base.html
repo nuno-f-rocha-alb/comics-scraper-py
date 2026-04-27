@@ -139,6 +139,41 @@
     .input-group > .form-control:first-child { border-radius: 8px 0 0 8px; }
     .input-group > .btn:last-child            { border-radius: 0 8px 8px 0; }
 
+    /* ── Series card grid ────────────────────────────────────────────────── */
+    .series-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
+      gap: 1.25rem;
+    }
+    .series-card {
+      border-radius: 12px; overflow: hidden; cursor: pointer;
+      transition: transform 0.15s, box-shadow 0.15s;
+      text-decoration: none; color: inherit; display: block;
+    }
+    .series-card:hover { transform: translateY(-4px); }
+    [data-bs-theme="light"] .series-card:hover { box-shadow: 0 8px 28px rgba(0,0,0,0.13); }
+    [data-bs-theme="dark"]  .series-card:hover { box-shadow: 0 8px 28px rgba(0,0,0,0.55); }
+    .cover-wrap { position: relative; aspect-ratio: 2 / 3; overflow: hidden; }
+    [data-bs-theme="light"] .cover-wrap { background: #e8edf5; }
+    [data-bs-theme="dark"]  .cover-wrap { background: rgba(91,141,217,0.1); }
+    .cover-wrap img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .cover-empty {
+      width: 100%; height: 100%;
+      display: flex; align-items: center; justify-content: center;
+      color: #5b8dd9; font-size: 2.5rem;
+    }
+    .cover-status { position: absolute; top: 6px; right: 6px; }
+    .series-card-body { padding: 0.55rem 0.7rem 0.65rem; }
+    .series-card-title {
+      font-size: 0.8rem; font-weight: 600; line-height: 1.3;
+      overflow: hidden; display: -webkit-box;
+      -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    }
+    .series-card-pub { font-size: 0.68rem; color: #6c757d; margin-top: 0.15rem; }
+    .series-card-progress { margin-top: 0.45rem; }
+    .series-card-progress .progress { height: 3px; border-radius: 2px; }
+    .series-card-progress .progress-label { font-size: 0.62rem; color: #6c757d; margin-top: 0.2rem; }
+
     /* ── HTMX indicator ──────────────────────────────────────────────────── */
     .htmx-indicator { display: none; }
     .htmx-request .htmx-indicator { display: inline-block; }

@@ -13,6 +13,19 @@ class Base(DeclarativeBase):
     pass
 
 
+def migrate_columns():
+    from sqlalchemy import inspect, text
+    inspector = inspect(engine)
+    cols = [c["name"] for c in inspector.get_columns("series")]
+    with engine.connect() as conn:
+        if "cover_image_url" not in cols:
+            conn.execute(text("ALTER TABLE series ADD COLUMN cover_image_url TEXT"))
+        if "total_issues" not in cols:
+            conn.execute(text("ALTER TABLE series ADD COLUMN total_issues INTEGER"))
+        conn.commit()
+
+
 def init_db():
     from web.models import Series  # noqa: F401 — ensures table is registered
     Base.metadata.create_all(bind=engine)
+    migrate_columns()

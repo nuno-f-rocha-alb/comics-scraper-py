@@ -7,9 +7,16 @@
     <h4 class="fw-bold mb-0">Series</h4>
     <p class="text-muted small mb-0">{{ series|length }} series tracked</p>
   </div>
-  <a class="btn btn-primary" href="/series/add">
-    <i class="bi bi-plus-lg me-1"></i>Add Series
-  </a>
+  <div class="d-flex gap-2">
+    <form method="post" action="/api/sync-covers">
+      <button type="submit" class="btn btn-sm btn-outline-secondary">
+        <i class="bi bi-arrow-repeat me-1"></i>Sync Covers
+      </button>
+    </form>
+    <a class="btn btn-primary btn-sm" href="/series/add">
+      <i class="bi bi-plus-lg me-1"></i>Add Series
+    </a>
+  </div>
 </div>
 
 {% if not series %}
@@ -25,25 +32,41 @@
 </div>
 
 {% else %}
-<div class="card table-card">
-  <table class="table table-hover align-middle mb-0">
-    <thead>
-      <tr>
-        <th class="ps-4">Series</th>
-        <th>Year</th>
-        <th>Metron</th>
-        <th>CV ID</th>
-        <th>Search Name</th>
-        <th>Status</th>
-        <th class="pe-3"></th>
-      </tr>
-    </thead>
-    <tbody id="series-tbody">
-      {% for s in series %}
-        {% include "partials/series_row.html" %}
-      {% endfor %}
-    </tbody>
-  </table>
+<div class="series-grid">
+  {% for s in series %}
+  {% set lc = local_counts[s.id] %}
+  <a href="/series/{{ s.id }}" class="series-card card">
+    <div class="cover-wrap">
+      {% if s.cover_image_url %}
+      <img src="{{ s.cover_image_url }}" alt="{{ s.series_name }}" loading="lazy">
+      {% else %}
+      <div class="cover-empty"><i class="bi bi-book"></i></div>
+      {% endif %}
+      {% if not s.enabled %}
+      <span class="cover-status badge badge-paused" style="font-size:0.6rem;">Paused</span>
+      {% endif %}
+    </div>
+    <div class="series-card-body">
+      <div class="series-card-title">{{ s.series_name }}</div>
+      <div class="series-card-pub">
+        {{ s.publisher }}{% if s.year %} · {{ s.year }}{% endif %}
+      </div>
+      {% if s.total_issues %}
+      {% set pct = [lc / s.total_issues * 100, 100] | min %}
+      <div class="series-card-progress">
+        <div class="progress">
+          <div class="progress-bar bg-primary" style="width:{{ pct | round(1) }}%;"></div>
+        </div>
+        <div class="progress-label">{{ lc }} / {{ s.total_issues }}</div>
+      </div>
+      {% elif lc %}
+      <div class="series-card-progress">
+        <div class="progress-label">{{ lc }} downloaded</div>
+      </div>
+      {% endif %}
+    </div>
+  </a>
+  {% endfor %}
 </div>
 {% endif %}
 

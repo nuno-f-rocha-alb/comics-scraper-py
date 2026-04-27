@@ -28,34 +28,50 @@ SQLite DB at `/app/cache/comics.db`, managed by SQLAlchemy (`web/models.py`).
 ## Web Interface ✅ complete
 Stack: FastAPI + SQLAlchemy + SQLite + Bootstrap 5 + HTMX + APScheduler
 
+### Series model columns
+`id, publisher, series_name, year, comicvine_volume_id, metron_series_id, annual_comicvine_volume_id, getcomics_search_name, cover_image_url, total_issues, enabled, created_at`
+- `cover_image_url` / `total_issues` — populated from Metron on add or via POST `/api/sync-covers`
+- New columns added via `migrate_columns()` in `database.py` (ALTER TABLE — safe for existing DBs)
+
 ### Routes
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/` | Redirect to `/series` |
-| GET | `/series` | Series list (table, enable/disable/delete via HTMX) |
+| GET | `/series` | Card grid of series with cover art + progress bars |
 | GET | `/series/add` | Search Metron + select series |
 | POST | `/series` | Create series |
+| GET | `/series/{id}` | Detail page: cover, progress, issues table |
 | GET | `/series/{id}/edit` | Edit form |
 | POST | `/series/{id}/update` | Update series |
+| POST | `/series/{id}/toggle` | Enable/disable (form POST, redirects to detail) |
+| PATCH | `/series/{id}/toggle` | Enable/disable (HTMX, returns series_row.html partial) |
 | DELETE | `/series/{id}` | Delete (HTMX) |
-| PATCH | `/series/{id}/toggle` | Enable/disable (HTMX) |
+| GET | `/series/{id}/issues` | HTMX partial — issues table from Metron vs local files |
 | GET | `/api/series` | JSON list of all series |
+| POST | `/api/sync-covers` | Fetch covers + issue counts from Metron for series missing them |
 | GET | `/api/metron/search?name=` | HTMX partial — Metron search results with cover art |
 | GET | `/api/metron/series/{id}/add-form` | HTMX partial — pre-filled add form |
 | GET | `/api/verify-search` | HTMX partial — live getcomics.org page-1 check |
 | GET | `/health` | `{"status": "ok"}` |
 
+### Issue status logic (detail page)
+Local files scanned from `/app/comics/{publisher}/{series_name} ({year})/` for `.cbz`/`.cbr`.
+Issue numbers extracted via regex `#(\d+(?:\.\d+)?)`, normalised to `str(int(float(n)))`.
+Status: **Downloaded** (local match) → **Upcoming** (future date) → **Missing** (past date) → **TBA** (no date).
+
 ### Template structure
 ```
 web/templates/
-  base.html                        Bootstrap 5 + HTMX CDN, navbar, flash messages
-  series_list.html                 Series table
+  base.html                        Bootstrap 5 + HTMX CDN, sidebar, card grid CSS
+  series_list.html                 *arr-style card grid with cover art
   series_add.html                  Metron search page
+  series_detail.html               Detail page: header + HTMX issues table
   series_edit.html                 Edit form with verify button
   partials/
-    series_row.html                <tr> reused by toggle route
+    series_row.html                <tr> reused by PATCH toggle route
+    series_issues.html             Issues table (HTMX partial)
     metron_results.html            Search result cards
-    add_form.html                  Pre-filled add form with verify button
+    add_form.html                  Pre-filled add form (includes hidden cover_image_url + total_issues)
     verify_results.html            getcomics.org page-1 results
 ```
 
@@ -64,3 +80,4 @@ web/templates/
 - **Phase 2** ✅ — FastAPI skeleton + APScheduler replacing shell loop
 - **Phase 3** ✅ — UI: series list, add/edit, Metron search-as-you-type
 - **Phase 4** ✅ — Verify step: live getcomics.org check before saving
+- **Phase 5** ✅ — *arr-style card grid + series detail page with issues list

@@ -16,6 +16,8 @@
   </div>
 
   <form action="/series" method="post">
+    <input type="hidden" name="cover_image_url" value="{{ series.image or '' }}">
+    <input type="hidden" name="total_issues" value="{{ series.issue_count or '' }}">
     <div class="row g-3">
       <div class="col-md-6">
         <label class="form-label fw-medium">Publisher</label>

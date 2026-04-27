@@ -22,6 +22,9 @@ class Series(Base):
     # Override the search term used on getcomics.org (defaults to series_name at query time)
     getcomics_search_name: Mapped[str | None] = mapped_column(String, nullable=True)
 
+    cover_image_url: Mapped[str | None] = mapped_column(String, nullable=True)
+    total_issues: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=lambda: datetime.now(timezone.utc), nullable=False

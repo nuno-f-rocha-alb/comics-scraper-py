@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% block title %}{{ s.series_name }} — Comics Scraper{% endblock %}
+{% block content %}
+
+<nav aria-label="breadcrumb" class="mb-3">
+  <ol class="breadcrumb small">
+    <li class="breadcrumb-item"><a href="/series">Series</a></li>
+    <li class="breadcrumb-item active">{{ s.series_name }}</li>
+  </ol>
+</nav>
+
+<!-- Series header -->
+<div class="card mb-4">
+  <div class="card-body p-4">
+    <div class="d-flex gap-4 align-items-start flex-wrap">
+
+      <!-- Cover -->
+      <div style="flex-shrink:0; width:160px;">
+        {% if s.cover_image_url %}
+        <img src="{{ s.cover_image_url }}" alt="{{ s.series_name }}"
+             class="w-100 rounded-3" style="aspect-ratio:2/3; object-fit:cover;">
+        {% else %}
+        <div class="rounded-3 d-flex align-items-center justify-content-center"
+             style="aspect-ratio:2/3; background:rgba(91,141,217,0.1); color:#5b8dd9; font-size:3rem;">
+          <i class="bi bi-book"></i>
+        </div>
+        {% endif %}
+      </div>
+
+      <!-- Info -->
+      <div class="flex-grow-1" style="min-width:0;">
+        <div class="d-flex align-items-center flex-wrap gap-2 mb-1">
+          <h3 class="fw-bold mb-0">{{ s.series_name }}</h3>
+          {% if s.enabled %}
+          <span class="badge badge-active">Monitored</span>
+          {% else %}
+          <span class="badge badge-paused">Paused</span>
+          {% endif %}
+        </div>
+
+        <p class="text-muted mb-3">
+          {{ s.publisher }}
+          {% if s.year %} · {{ s.year }}{% endif %}
+          {% if s.metron_series_id %} · <span class="text-muted">Metron #{{ s.metron_series_id }}</span>{% endif %}
+        </p>
+
+        <!-- Progress bar -->
+        {% if s.total_issues %}
+        {% set pct = [local_count / s.total_issues * 100, 100] | min %}
+        <div class="mb-3" style="max-width:380px;">
+          <div class="d-flex justify-content-between small text-muted mb-1">
+            <span>{{ local_count }} downloaded</span>
+            <span>{{ s.total_issues }} issues</span>
+          </div>
+          <div class="progress" style="height:6px; border-radius:4px;">
+            <div class="progress-bar bg-primary" style="width:{{ pct | round(1) }}%;"></div>
+          </div>
+        </div>
+        {% elif local_count %}
+        <p class="text-muted small mb-3">{{ local_count }} files downloaded</p>
+        {% endif %}
+
+        <!-- Actions -->
+        <div class="d-flex gap-2 flex-wrap mt-2">
+          <a href="/series/{{ s.id }}/edit" class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-pencil me-1"></i>Edit
+          </a>
+          <form method="post" action="/series/{{ s.id }}/toggle" style="margin:0;">
+            <button type="submit" class="btn btn-sm btn-outline-secondary">
+              {% if s.enabled %}
+              <i class="bi bi-pause-fill me-1"></i>Pause
+              {% else %}
+              <i class="bi bi-play-fill me-1"></i>Resume
+              {% endif %}
+            </button>
+          </form>
+          <button class="btn btn-sm btn-outline-danger"
+                  hx-delete="/series/{{ s.id }}"
+                  hx-confirm="Delete {{ s.series_name }}? This cannot be undone."
+                  hx-on::after-request="window.location='/series'">
+            <i class="bi bi-trash me-1"></i>Delete
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Issues -->
+<div class="card">
+  <div class="card-header py-3 d-flex align-items-center">
+    <span class="fw-semibold">Issues</span>
+    <span class="spinner-border spinner-border-sm text-secondary ms-2 htmx-indicator" id="issues-spinner"></span>
+  </div>
+  <div id="issues-container"
+       hx-get="/series/{{ s.id }}/issues"
+       hx-trigger="load"
+       hx-swap="innerHTML"
+       hx-indicator="#issues-spinner">
+    <div class="text-center py-5 text-muted">
+      <div class="spinner-border text-primary mb-3" role="status"></div>
+      <p class="small">Fetching issues from Metron…</p>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
