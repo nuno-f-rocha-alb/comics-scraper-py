@@ -134,8 +134,12 @@ def _build_issue_list(raw: list[dict], local_nums: set[str]) -> list[dict]:
         image_raw = issue.get("image") or ""
         cover = image_raw if isinstance(image_raw, str) else (image_raw.get("medium") or "")
 
-        name_raw = issue.get("issue_name") or issue.get("name") or ""
-        title = ", ".join(name_raw) if isinstance(name_raw, list) else name_raw
+        # "name" field from Metron API is a list; "issue_name" is our cache key (string)
+        _name = issue.get("name")
+        if isinstance(_name, list):
+            title = ", ".join(_name)
+        else:
+            title = str(issue.get("issue_name") or "")
 
         issues.append({
             "number": num_str,
@@ -193,8 +197,8 @@ def _get_or_fetch_metron_issues(
             continue
         img_raw = issue.get("image") or ""
         img = img_raw if isinstance(img_raw, str) else (img_raw.get("medium") or "")
-        name_raw = issue.get("issue_name") or issue.get("name") or ""
-        title = ", ".join(name_raw) if isinstance(name_raw, list) else str(name_raw)
+        _name = issue.get("name")
+        title = ", ".join(_name) if isinstance(_name, list) else str(_name or "")
         db.add(MetronIssueCache(
             metron_id=mid,
             series_id=metron_series_id,
