@@ -4,14 +4,24 @@
     <thead>
       <tr>
         <th class="ps-3" style="width:36px;">
-          {% if all_monitored %}
+          {% if all_monitored and has_monitoring %}
+          {# All issues explicitly in DB → DELETE clears them (back to default / 0 selected) #}
           <button class="btn btn-link btn-sm p-0 text-warning"
                   hx-delete="/series/{{ series.id }}/monitor-all"
                   hx-target="body" hx-swap="none"
                   title="All monitored — click to unmonitor all">
             <i class="bi bi-bookmark-fill"></i>
           </button>
+          {% elif all_monitored and not has_monitoring %}
+          {# Default mode (no entries yet) → POST adds all issues explicitly #}
+          <button class="btn btn-link btn-sm p-0 text-warning"
+                  hx-post="/series/{{ series.id }}/monitor-all"
+                  hx-target="body" hx-swap="none"
+                  title="All monitored (default) — click to switch to selective mode">
+            <i class="bi bi-bookmark-fill"></i>
+          </button>
           {% else %}
+          {# Partial or none selected → POST to monitor all #}
           <button class="btn btn-link btn-sm p-0 text-muted"
                   hx-post="/series/{{ series.id }}/monitor-all"
                   hx-target="body" hx-swap="none"
