@@ -79,14 +79,11 @@
         <div class="col-md-3">
           <label class="form-label fw-medium">Issue min</label>
           <input type="number" class="form-control" name="issue_min"
-                 value="{{ s.issue_min or '' }}" min="0" placeholder="—">
-          <div class="form-text">Skip issues below this number.</div>
-        </div>
-        <div class="col-md-3">
-          <label class="form-label fw-medium">Issue max</label>
-          <input type="number" class="form-control" name="issue_max"
-                 value="{{ s.issue_max or '' }}" min="0" placeholder="—">
-          <div class="form-text">Skip issues above this number.</div>
+                 value="{{ s.issue_min if s.issue_min is not none else 1 }}" min="1">
+          <div class="form-text">
+            Skip issues below this number. Upper bound comes automatically from Metron
+            {% if s.total_issues %}(currently #{{ s.total_issues }}){% endif %}.
+          </div>
         </div>
 
         <!-- getcomics search name -->

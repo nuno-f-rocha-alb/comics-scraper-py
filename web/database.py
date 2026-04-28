@@ -25,7 +25,9 @@ def migrate_columns():
         if "metron_annual_series_id" not in cols:
             conn.execute(text("ALTER TABLE series ADD COLUMN metron_annual_series_id INTEGER"))
         if "issue_min" not in cols:
-            conn.execute(text("ALTER TABLE series ADD COLUMN issue_min INTEGER"))
+            conn.execute(text("ALTER TABLE series ADD COLUMN issue_min INTEGER NOT NULL DEFAULT 1"))
+        else:
+            conn.execute(text("UPDATE series SET issue_min = 1 WHERE issue_min IS NULL"))
         if "issue_max" not in cols:
             conn.execute(text("ALTER TABLE series ADD COLUMN issue_max INTEGER"))
         conn.commit()

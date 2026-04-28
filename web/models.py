@@ -27,9 +27,9 @@ class Series(Base):
     # Override the search term used on getcomics.org (defaults to series_name at query time)
     getcomics_search_name: Mapped[str | None] = mapped_column(String, nullable=True)
 
-    # Optional issue number bounds — scraper ignores issues outside this range
-    issue_min: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    issue_max: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Lower bound — scraper ignores issues below this number (default 1)
+    issue_min: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    # issue_max column exists in DB but is unused — upper bound comes from total_issues
 
     metron_annual_series_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
@@ -55,8 +55,8 @@ class Series(Base):
             str(self.annual_comicvine_volume_id) if self.annual_comicvine_volume_id is not None else None,
             str(self.metron_series_id) if self.metron_series_id is not None else None,
             self.getcomics_search_name or None,
-            self.issue_min,   # [7]
-            self.issue_max,   # [8]
+            self.issue_min,    # [7] — manual lower bound
+            self.total_issues, # [8] — Metron upper bound (updated by Sync Covers)
         )
 
     def __repr__(self) -> str:

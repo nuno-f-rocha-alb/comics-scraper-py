@@ -42,11 +42,9 @@
           {{ s.publisher }}
           {% if s.year %} · {{ s.year }}{% endif %}
           {% if s.metron_series_id %} · <span class="text-muted">Metron #{{ s.metron_series_id }}</span>{% endif %}
-          {% if s.issue_min or s.issue_max %}
+          {% if s.issue_min or s.total_issues %}
            · <span class="text-muted">Issues
-            {% if s.issue_min %}#{{ s.issue_min }}{% else %}—{% endif %}
-            →
-            {% if s.issue_max %}#{{ s.issue_max }}{% else %}∞{% endif %}
+            #{{ s.issue_min or 1 }} → {% if s.total_issues %}#{{ s.total_issues }}{% else %}∞{% endif %}
            </span>
           {% endif %}
         </p>

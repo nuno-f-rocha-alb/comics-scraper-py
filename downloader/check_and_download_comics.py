@@ -18,7 +18,7 @@ def check_and_download_comics(entry, available_comics, local_dir):
     normalized_annual_name = normalized_series_name + " annual"
 
     annual_volume_id = entry[4] if len(entry) > 4 else None
-    issue_min = entry[7] if len(entry) > 7 and entry[7] is not None else None
+    issue_min = entry[7] if len(entry) > 7 and entry[7] is not None else 1
     issue_max = entry[8] if len(entry) > 8 and entry[8] is not None else None
 
     ignore_keywords = ['Access', 'Preview', 'TPB']
