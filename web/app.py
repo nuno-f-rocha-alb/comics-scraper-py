@@ -189,22 +189,24 @@ def _get_or_fetch_metron_issues(
 
     raw = _fetch_metron_issues(metron_series_id)
 
-    # On explicit refresh, fetch each issue's detail to populate the name field
-    # (list endpoint does not return story titles — detail endpoint does)
-    if force:
-        from config import METRON_BASE_URL
-        from metadata.metron_client import get as metron_get
-        for issue in raw:
-            mid = issue.get("id")
-            if not mid:
-                continue
-            try:
-                detail = metron_get(f"{METRON_BASE_URL}/issue/{mid}/").json()
-                names = detail.get("name")
-                if isinstance(names, list) and names:
-                    issue["name"] = names
-            except Exception:
-                pass
+    # The list endpoint does not return story titles — only the detail endpoint does.
+    # Fetch individual issue details for every cache population (initial + force refresh).
+    from config import METRON_BASE_URL
+    from metadata.metron_client import get as metron_get
+    for issue in raw:
+        mid = issue.get("id")
+        if not mid:
+            continue
+        existing = issue.get("name")
+        if isinstance(existing, list) and existing:
+            continue  # list endpoint already provided a title
+        try:
+            detail = metron_get(f"{METRON_BASE_URL}/issue/{mid}/").json()
+            names = detail.get("name")
+            if isinstance(names, list) and names:
+                issue["name"] = names
+        except Exception:
+            pass
 
     db.query(MetronIssueCache).filter(
         MetronIssueCache.series_id == metron_series_id
