@@ -333,14 +333,42 @@ def api_list_series(db: Session = Depends(get_db)):
 
 @app.get("/api/metron/search", response_class=HTMLResponse)
 def metron_search(request: Request, name: str = "", db: Session = Depends(get_db)):
-    if len(name.strip()) < 2:
+    name = name.strip()
+    if len(name) < 2:
         return HTMLResponse("")
+
+    # Search MetronCache locally — zero API calls when cache is populated
+    terms = name.split()
+    cache_q = db.query(MetronCache)
+    for term in terms:
+        cache_q = cache_q.filter(MetronCache.name.ilike(f"%{term}%"))
+    cache_rows = cache_q.order_by(MetronCache.year_began.desc()).limit(20).all()
+
+    if cache_rows:
+        results = [
+            {
+                "id": r.metron_id,
+                "name": r.name,
+                "publisher": {"name": r.publisher_name} if r.publisher_name else None,
+                "year_began": r.year_began,
+                "issue_count": r.issue_count,
+                "image": r.image_url or "",
+            }
+            for r in cache_rows
+        ]
+        uncached_ids = [r.metron_id for r in cache_rows if r.image_url is None]
+        return templates.TemplateResponse(
+            "partials/metron_results.html",
+            {"request": request, "results": results, "query": name, "uncached_ids": uncached_ids},
+        )
+
+    # Fall back to Metron API (cache empty or no match)
     try:
         from config import METRON_BASE_URL
         from metadata.metron_client import get as metron_get
-        r = metron_get(f"{METRON_BASE_URL}/series/", name=name.strip())
+        r = metron_get(f"{METRON_BASE_URL}/series/", name=name)
         results = r.json().get("results", [])
-        uncached_ids: list[int] = []
+        uncached_ids = []
         if results:
             ids = [s["id"] for s in results if s.get("id")]
             cached_map = {
@@ -366,12 +394,38 @@ def metron_search(request: Request, name: str = "", db: Session = Depends(get_db
 
 @app.get("/api/metron/search-pick", response_class=HTMLResponse)
 def metron_search_pick(request: Request, name: str = "", field: str = "", db: Session = Depends(get_db)):
-    if len(name.strip()) < 2:
+    name = name.strip()
+    if len(name) < 2:
         return HTMLResponse("")
+
+    # Search MetronCache locally — zero API calls when cache is populated
+    terms = name.split()
+    cache_q = db.query(MetronCache)
+    for term in terms:
+        cache_q = cache_q.filter(MetronCache.name.ilike(f"%{term}%"))
+    cache_rows = cache_q.order_by(MetronCache.year_began.desc()).limit(20).all()
+
+    if cache_rows:
+        results = [
+            {
+                "id": r.metron_id,
+                "name": r.name,
+                "publisher": {"name": r.publisher_name} if r.publisher_name else None,
+                "year_began": r.year_began,
+                "series_type": {"name": r.series_type} if r.series_type else None,
+            }
+            for r in cache_rows
+        ]
+        return templates.TemplateResponse(
+            "partials/metron_pick_results.html",
+            {"request": request, "results": results, "field": field},
+        )
+
+    # Fall back to Metron API (cache empty or no match)
     try:
         from config import METRON_BASE_URL
         from metadata.metron_client import get as metron_get
-        r = metron_get(f"{METRON_BASE_URL}/series/", name=name.strip())
+        r = metron_get(f"{METRON_BASE_URL}/series/", name=name)
         results = r.json().get("results", [])
         return templates.TemplateResponse(
             "partials/metron_pick_results.html",
@@ -469,7 +523,44 @@ def metron_cache_refresh(db: Session = Depends(get_db)):
         db.commit()
         url = data.get("next")
 
-    msg = f"Metron cache refreshed: {added} new, {updated} updated."
+    # Sync covers + issue lists for tracked series
+    tracked = db.query(Series).filter(Series.metron_series_id.isnot(None)).all()
+    covers_synced = issues_synced = 0
+    for s in tracked:
+        mid = s.metron_series_id
+        # Populate cover for MetronCache entry if not yet tried
+        cached = db.get(MetronCache, mid)
+        if cached is None or cached.image_url is None:
+            _ensure_cover_cached(mid, db)
+            covers_synced += 1
+        # Pre-populate issue list if no cache exists
+        existing = db.query(MetronIssueCache).filter(MetronIssueCache.series_id == mid).first()
+        if not existing:
+            try:
+                _get_or_fetch_metron_issues(mid, db)
+                issues_synced += 1
+            except Exception:
+                pass
+        # Annual series
+        if s.metron_annual_series_id:
+            ann_existing = (
+                db.query(MetronIssueCache)
+                .filter(MetronIssueCache.series_id == s.metron_annual_series_id)
+                .first()
+            )
+            if not ann_existing:
+                try:
+                    _get_or_fetch_metron_issues(s.metron_annual_series_id, db)
+                    issues_synced += 1
+                except Exception:
+                    pass
+
+    parts = [f"Metron cache refreshed: {added} new, {updated} updated"]
+    if covers_synced:
+        parts.append(f"{covers_synced} covers synced")
+    if issues_synced:
+        parts.append(f"{issues_synced} issue lists cached")
+    msg = ". ".join(parts) + "."
     return RedirectResponse(url=f"/series?msg={quote(msg)}", status_code=303)
 
 
