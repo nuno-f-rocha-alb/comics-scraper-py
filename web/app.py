@@ -1163,10 +1163,14 @@ def library_scan(force: bool = Form(default=False), db: Session = Depends(get_db
     return Response(status_code=200, headers={"HX-Trigger": "refresh-scan-status"})
 
 
-@app.post("/series/{series_id}/scan")
+@app.post("/series/{series_id}/scan", response_class=HTMLResponse)
 def series_scan(series_id: int, force: bool = Form(default=False), db: Session = Depends(get_db)):
     s = db.query(Series).filter(Series.id == series_id).first()
     if not s:
         raise HTTPException(status_code=404)
     _scanner.run_scan([s.to_scraper_tuple()], force=force)
-    return Response(status_code=200, headers={"HX-Trigger": "refresh-scan-status"})
+    return HTMLResponse(
+        '<button class="btn btn-sm btn-outline-secondary" disabled>'
+        '<i class="bi bi-arrow-repeat me-1"></i>Scan started…'
+        '</button>'
+    )

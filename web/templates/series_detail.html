@@ -79,12 +79,14 @@
               {% endif %}
             </button>
           </form>
-          <form method="post" action="/series/{{ s.id }}/scan" style="margin:0;">
-            <button type="submit" class="btn btn-sm btn-outline-secondary"
-                    title="Scan folder and tag any untagged CBZ files">
-              <i class="bi bi-arrow-repeat me-1"></i>Scan Folder
-            </button>
-          </form>
+          <button class="btn btn-sm btn-outline-secondary"
+                  hx-post="/series/{{ s.id }}/scan"
+                  hx-target="this"
+                  hx-swap="outerHTML"
+                  hx-indicator="this"
+                  title="Scan folder and tag any untagged CBZ files">
+            <i class="bi bi-arrow-repeat me-1"></i>Scan Folder
+          </button>
           <button class="btn btn-sm btn-outline-danger"
                   hx-delete="/series/{{ s.id }}"
                   hx-confirm="Delete {{ s.series_name }}? This cannot be undone."
