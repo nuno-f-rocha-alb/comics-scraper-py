@@ -67,12 +67,17 @@ def sanitize_filename(name: str) -> str:
 
 
 def normalize_title(title):
-    """Normalize the title by converting to lowercase, stripping common prefixes, and replacing dashes."""
+    """Normalize a title for comparison: lowercase, strip common prefixes,
+    and reduce separators (en-dash, colon, slash) to ' - ' so that
+    'Batman/Superman: World's Finest' and 'Batman – Superman – World's Finest'
+    both become 'batman - superman - world's finest'."""
     title = title.lower()
     common_prefixes = ["the ", "a ", "an "]
     for prefix in common_prefixes:
         if title.startswith(prefix):
             title = title[len(prefix):]
-    title = title.replace("–", "-")  # Replace en dash with hyphen
-    title = title.strip()
-    return title
+    title = title.replace("–", "-")          # en dash → hyphen (keeps spaces)
+    title = re.sub(r'\s*/\s*', ' - ', title)  # "/" → " - "
+    title = re.sub(r'\s*:\s*', ' - ', title)  # ":" → " - "
+    title = re.sub(r' {2,}', ' ', title)      # collapse double spaces
+    return title.strip()
