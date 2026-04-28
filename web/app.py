@@ -793,6 +793,8 @@ def series_create(
     getcomics_search_name: str = Form(""),
     cover_image_url: str = Form(""),
     total_issues: str = Form(""),
+    issue_min: str = Form(""),
+    issue_max: str = Form(""),
 ):
     s = Series(
         publisher=publisher.strip(),
@@ -805,6 +807,8 @@ def series_create(
         getcomics_search_name=getcomics_search_name.strip() or None,
         cover_image_url=cover_image_url.strip() or None,
         total_issues=int(total_issues) if total_issues.strip() else None,
+        issue_min=int(issue_min) if issue_min.strip() else None,
+        issue_max=int(issue_max) if issue_max.strip() else None,
     )
     db.add(s)
     db.commit()
@@ -834,6 +838,8 @@ def series_update(
     metron_annual_series_id: str = Form(""),
     annual_comicvine_volume_id: str = Form(""),
     getcomics_search_name: str = Form(""),
+    issue_min: str = Form(""),
+    issue_max: str = Form(""),
 ):
     s = db.query(Series).filter(Series.id == series_id).first()
     if not s:
@@ -846,6 +852,8 @@ def series_update(
     s.metron_annual_series_id = int(metron_annual_series_id) if metron_annual_series_id.strip() else None
     s.annual_comicvine_volume_id = int(annual_comicvine_volume_id) if annual_comicvine_volume_id.strip() else None
     s.getcomics_search_name = getcomics_search_name.strip() or None
+    s.issue_min = int(issue_min) if issue_min.strip() else None
+    s.issue_max = int(issue_max) if issue_max.strip() else None
     db.commit()
     return RedirectResponse(
         url=f"/series/{series_id}",

@@ -42,6 +42,13 @@
           {{ s.publisher }}
           {% if s.year %} · {{ s.year }}{% endif %}
           {% if s.metron_series_id %} · <span class="text-muted">Metron #{{ s.metron_series_id }}</span>{% endif %}
+          {% if s.issue_min or s.issue_max %}
+           · <span class="text-muted">Issues
+            {% if s.issue_min %}#{{ s.issue_min }}{% else %}—{% endif %}
+            →
+            {% if s.issue_max %}#{{ s.issue_max }}{% else %}∞{% endif %}
+           </span>
+          {% endif %}
         </p>
 
         <!-- Progress bar -->
