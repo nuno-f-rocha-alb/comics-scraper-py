@@ -63,6 +63,14 @@ class Series(Base):
         return f"<Series {self.publisher}/{self.series_name} ({self.year})>"
 
 
+class AppSetting(Base):
+    """Key-value store for persistent application settings."""
+    __tablename__ = "app_settings"
+
+    key: Mapped[str] = mapped_column(String, primary_key=True)
+    value: Mapped[str] = mapped_column(String, nullable=False)
+
+
 class MonitoredIssue(Base):
     """Explicit issue-level monitoring. When any rows exist for a series,
     the scraper only downloads issues listed here (selective mode).

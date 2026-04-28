@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block title %}Scheduler — Comics Scraper{% endblock %}
+{% block content %}
+
+<div class="d-flex align-items-center gap-3 mb-4">
+  <h4 class="fw-bold mb-0">Scheduler</h4>
+</div>
+
+<!-- Status card (polled every 3s when running, every 10s when idle) -->
+<div class="card mb-4">
+  <div class="card-header py-3 fw-semibold">Status</div>
+  <div class="card-body py-3">
+    <div id="scheduler-status"
+         hx-get="/scheduler/status"
+         hx-trigger="load, every 3s"
+         hx-swap="innerHTML">
+      {% include "partials/scheduler_status.html" %}
+    </div>
+  </div>
+</div>
+
+<!-- Schedule config -->
+<div class="card">
+  <div class="card-header py-3 fw-semibold">Schedule</div>
+  <div class="card-body p-4">
+    <form method="post" action="/scheduler/config" id="sched-form">
+      <div class="row g-3 align-items-end">
+
+        <div class="col-md-4">
+          <label class="form-label fw-medium">Mode</label>
+          <select class="form-select" name="mode" id="sched-mode" onchange="updateScheduleUI()">
+            <option value="interval" {{ 'selected' if status.mode == 'interval' }}>Every N hours</option>
+            <option value="cron"     {{ 'selected' if status.mode == 'cron' }}>Cron expression</option>
+          </select>
+        </div>
+
+        <!-- Interval input -->
+        <div class="col-md-4" id="ui-interval" style="{{ 'display:none;' if status.mode == 'cron' }}">
+          <label class="form-label fw-medium">Hours between runs</label>
+          <div class="input-group">
+            <input type="number" class="form-control" name="value" id="val-interval"
+                   min="1" max="168"
+                   value="{{ status.value if status.mode == 'interval' else '24' }}">
+            <span class="input-group-text text-muted">h</span>
+          </div>
+        </div>
+
+        <!-- Cron input -->
+        <div class="col-md-4" id="ui-cron" style="{{ '' if status.mode == 'cron' else 'display:none;' }}">
+          <label class="form-label fw-medium">
+            Cron expression
+            <a href="https://crontab.guru/" target="_blank" rel="noopener"
+               class="text-muted small ms-1" style="font-size:0.75rem;">
+              <i class="bi bi-box-arrow-up-right"></i> crontab.guru
+            </a>
+          </label>
+          <input type="text" class="form-control font-monospace" name="value" id="val-cron"
+                 placeholder="0 3 * * *"
+                 value="{{ status.value if status.mode == 'cron' else '0 3 * * *' }}">
+          <div class="form-text">e.g. <code>0 3 * * *</code> = every day at 03:00</div>
+        </div>
+
+        <div class="col-md-4">
+          <button type="submit" class="btn btn-primary w-100">
+            <i class="bi bi-check-lg me-1"></i>Save Schedule
+          </button>
+        </div>
+
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+function updateScheduleUI() {
+  const mode = document.getElementById('sched-mode').value;
+  const isInterval = mode === 'interval';
+
+  document.getElementById('ui-interval').style.display = isInterval ? '' : 'none';
+  document.getElementById('ui-cron').style.display     = isInterval ? 'none' : '';
+
+  // Swap the active input's name to 'value' so only one is submitted
+  document.getElementById('val-interval').name = isInterval ? 'value' : '_value_interval';
+  document.getElementById('val-cron').name     = isInterval ? '_value_cron' : 'value';
+}
+updateScheduleUI();
+</script>
+{% endblock %}

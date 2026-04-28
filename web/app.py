@@ -11,7 +11,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from web.database import SessionLocal, init_db
-from web.models import DownloadJob, MetronCache, MetronIssueCache, MonitoredIssue, Series
+from web.models import AppSetting, DownloadJob, MetronCache, MetronIssueCache, MonitoredIssue, Series
 
 COMICS_BASE_DIR = os.getenv("COMICS_BASE_DIR", "/app/comics")
 
@@ -826,6 +826,48 @@ def downloads_badge(db: Session = Depends(get_db)):
             f' style="background:#0d6efd;font-size:0.65rem;">{count}</span>'
         )
     return HTMLResponse('<span id="dl-badge"></span>')
+
+
+# ── Scheduler ─────────────────────────────────────────────────────────────────
+
+@app.get("/scheduler", response_class=HTMLResponse)
+def scheduler_page(request: Request):
+    from web.scheduler import get_status
+    return templates.TemplateResponse(
+        "scheduler.html", {"request": request, "status": get_status()}
+    )
+
+
+@app.get("/scheduler/status", response_class=HTMLResponse)
+def scheduler_status(request: Request):
+    from web.scheduler import get_status
+    return templates.TemplateResponse(
+        "partials/scheduler_status.html", {"request": request, "status": get_status()}
+    )
+
+
+@app.post("/scheduler/run")
+def scheduler_run():
+    from web.scheduler import is_running, trigger_now
+    if not is_running():
+        trigger_now()
+    return RedirectResponse(url="/scheduler", status_code=303)
+
+
+@app.post("/scheduler/config")
+def scheduler_config(
+    mode: str = Form(...),
+    value: str = Form(...),
+):
+    from web.scheduler import update_schedule
+    try:
+        update_schedule(mode.strip(), value.strip())
+        msg = f"Schedule updated: {'every ' + value + 'h' if mode == 'interval' else value}"
+        return RedirectResponse(url=f"/scheduler?msg={quote(msg)}", status_code=303)
+    except Exception as exc:
+        return RedirectResponse(
+            url=f"/scheduler?error={quote(str(exc))}", status_code=303
+        )
 
 
 # ── HTML pages ─────────────────────────────────────────────────────────────────
