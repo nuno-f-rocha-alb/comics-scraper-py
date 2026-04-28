@@ -1,21 +1,21 @@
-{% macro issue_table(issues, series, monitored_nums, has_monitoring) %}
+{% macro issue_table(issues, series, monitored_nums, has_monitoring, all_monitored) %}
 <div class="table-responsive">
   <table class="table table-hover align-middle mb-0">
     <thead>
       <tr>
         <th class="ps-3" style="width:36px;">
-          {% if has_monitoring %}
+          {% if all_monitored %}
           <button class="btn btn-link btn-sm p-0 text-warning"
                   hx-delete="/series/{{ series.id }}/monitor-all"
                   hx-target="body" hx-swap="none"
-                  title="Unmonitor all">
-            <i class="bi bi-bookmark-dash-fill"></i>
+                  title="All monitored — click to unmonitor all">
+            <i class="bi bi-bookmark-fill"></i>
           </button>
           {% else %}
           <button class="btn btn-link btn-sm p-0 text-muted"
                   hx-post="/series/{{ series.id }}/monitor-all"
                   hx-target="body" hx-swap="none"
-                  title="Monitor all">
+                  title="Some unmonitored — click to monitor all">
             <i class="bi bi-bookmark"></i>
           </button>
           {% endif %}
@@ -77,7 +77,11 @@
 
 {% if regular_issues or annual_issues %}
 
-{{ issue_table(regular_issues, s, monitored_nums, has_monitoring) }}
+{# all_monitored: default mode (no explicit entries) OR every issue is in monitored_nums #}
+{% set total_issues = (regular_issues | length) + (annual_issues | length) %}
+{% set all_monitored = not has_monitoring or (monitored_nums | length >= total_issues) %}
+
+{{ issue_table(regular_issues, s, monitored_nums, has_monitoring, all_monitored) }}
 
 {% if annual_issues %}
 <div class="border-top d-flex align-items-center gap-2 px-4 py-2"
@@ -88,7 +92,7 @@
     {{ annual_issues | length }}
   </span>
 </div>
-{{ issue_table(annual_issues, s, monitored_nums, has_monitoring) }}
+{{ issue_table(annual_issues, s, monitored_nums, has_monitoring, all_monitored) }}
 {% endif %}
 
 {% else %}
