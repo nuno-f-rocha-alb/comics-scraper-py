@@ -11,7 +11,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from web.database import SessionLocal, init_db
-from web.models import DownloadJob, MetronCache, MetronIssueCache, Series
+from web.models import DownloadJob, MetronCache, MetronIssueCache, MonitoredIssue, Series
 
 COMICS_BASE_DIR = os.getenv("COMICS_BASE_DIR", "/app/comics")
 
@@ -679,6 +679,52 @@ def verify_search(
 
 # ── Download queue ────────────────────────────────────────────────────────────
 
+@app.post("/series/{series_id}/issues/{number}/monitor", response_class=HTMLResponse)
+def issue_monitor_toggle(series_id: int, number: str, db: Session = Depends(get_db)):
+    s = db.query(Series).filter(Series.id == series_id).first()
+    if not s:
+        raise HTTPException(status_code=404)
+
+    try:
+        norm = str(int(float(number)))
+    except (ValueError, TypeError):
+        norm = number
+
+    existing = (
+        db.query(MonitoredIssue)
+        .filter(MonitoredIssue.series_id == series_id, MonitoredIssue.issue_number == norm)
+        .first()
+    )
+    if existing:
+        db.delete(existing)
+        db.commit()
+        monitored = False
+    else:
+        db.add(MonitoredIssue(series_id=series_id, issue_number=norm))
+        db.commit()
+        monitored = True
+
+    return HTMLResponse(_monitor_btn(series_id, number, monitored))
+
+
+def _monitor_btn(series_id: int, number: str, monitored: bool) -> str:
+    if monitored:
+        return (
+            f'<button class="btn btn-link btn-sm p-0 text-warning"'
+            f' hx-post="/series/{series_id}/issues/{number}/monitor"'
+            f' hx-target="this" hx-swap="outerHTML"'
+            f' title="Monitored — click to unmonitor">'
+            f'<i class="bi bi-bookmark-fill"></i></button>'
+        )
+    return (
+        f'<button class="btn btn-link btn-sm p-0 text-muted"'
+        f' hx-post="/series/{series_id}/issues/{number}/monitor"'
+        f' hx-target="this" hx-swap="outerHTML"'
+        f' title="Not monitored — click to monitor">'
+        f'<i class="bi bi-bookmark"></i></button>'
+    )
+
+
 @app.post("/series/{series_id}/issues/{number}/download", response_class=HTMLResponse)
 def issue_download(series_id: int, number: str, db: Session = Depends(get_db)):
     s = db.query(Series).filter(Series.id == series_id).first()
@@ -965,6 +1011,10 @@ def series_issues_partial(
         .filter(MetronIssueCache.series_id == s.metron_series_id)
         .first()
     )
+    monitored_rows = (
+        db.query(MonitoredIssue).filter(MonitoredIssue.series_id == s.id).all()
+    )
+    monitored_nums = {m.issue_number for m in monitored_rows}
     return templates.TemplateResponse(
         "partials/series_issues.html",
         {
@@ -973,5 +1023,7 @@ def series_issues_partial(
             "regular_issues": regular_issues,
             "annual_issues": annual_issues,
             "cached_at": first.cached_at if first else None,
+            "monitored_nums": monitored_nums,
+            "has_monitoring": bool(monitored_nums),
         },
     )

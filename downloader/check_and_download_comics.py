@@ -8,7 +8,7 @@ from downloader.process_downloaded_comic import process_downloaded_comic
 from util import normalize_title, extract_year_from_comic_title
 
 
-def check_and_download_comics(entry, available_comics, local_dir):
+def check_and_download_comics(entry, available_comics, local_dir, *, monitored_set=None):
     """Compares available comics with local files and downloads new ones if not already present, ignoring non-matching titles.
 
     Downloads all new issues first, then processes metadata in batch at the end.
@@ -85,6 +85,17 @@ def check_and_download_comics(entry, available_comics, local_dir):
                 continue
             if issue_max is not None and num > issue_max:
                 logging.info(f"Ignoring {title}: issue #{num} is above issue_max={issue_max}.")
+                continue
+
+        # Apply selective monitoring — if any issues are explicitly monitored,
+        # only download those; None means "all" (default behaviour)
+        if monitored_set is not None:
+            try:
+                norm_num = str(int(float(issue_number)))
+            except (ValueError, TypeError):
+                norm_num = issue_number
+            if norm_num not in monitored_set:
+                logging.info(f"Ignoring {title}: issue #{issue_number} not in monitored set.")
                 continue
 
         if is_annual:

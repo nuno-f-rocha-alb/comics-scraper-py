@@ -9,7 +9,7 @@ from util import create_series_directory
 
 def _load_series() -> list[tuple]:
     from web.database import SessionLocal, init_db
-    from web.models import Series
+    from web.models import MonitoredIssue, Series
 
     init_db()
     with SessionLocal() as db:
@@ -19,21 +19,33 @@ def _load_series() -> list[tuple]:
             .order_by(Series.publisher, Series.series_name)
             .all()
         )
-    if not rows:
+        result = []
+        for r in rows:
+            monitored = (
+                db.query(MonitoredIssue)
+                .filter(MonitoredIssue.series_id == r.id)
+                .all()
+            )
+            monitored_set = (
+                frozenset(m.issue_number for m in monitored) if monitored else None
+            )
+            result.append((r.to_scraper_tuple(), monitored_set))
+
+    if not result:
         logging.warning("No series found in DB. Run migrate_series_list.py first.")
-    return [r.to_scraper_tuple() for r in rows]
+    return result
 
 
 def run_scraper():
     start_time = time.time()
     series_list = _load_series()
 
-    for entry in series_list:
+    for entry, monitored_set in series_list:
         logging.info("Searching for comics in series: %s by %s", entry[1], entry[0])
         available_comics = search_comics(entry)
         if available_comics:
             local_dir = create_series_directory(entry)
-            check_and_download_comics(entry, available_comics, local_dir)
+            check_and_download_comics(entry, available_comics, local_dir, monitored_set=monitored_set)
         else:
             logging.warning("No comics found for series: %s", entry[1])
 

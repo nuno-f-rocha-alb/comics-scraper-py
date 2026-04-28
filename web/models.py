@@ -63,6 +63,18 @@ class Series(Base):
         return f"<Series {self.publisher}/{self.series_name} ({self.year})>"
 
 
+class MonitoredIssue(Base):
+    """Explicit issue-level monitoring. When any rows exist for a series,
+    the scraper only downloads issues listed here (selective mode).
+    When no rows exist, all issues are downloaded (default mode)."""
+    __tablename__ = "monitored_issues"
+    __table_args__ = (UniqueConstraint("series_id", "issue_number", name="uq_monitored_issue"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    series_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    issue_number: Mapped[str] = mapped_column(String, nullable=False)
+
+
 class DownloadJob(Base):
     __tablename__ = "download_jobs"
 

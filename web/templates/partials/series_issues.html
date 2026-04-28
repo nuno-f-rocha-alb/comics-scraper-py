@@ -1,9 +1,10 @@
-{% macro issue_table(issues, series) %}
+{% macro issue_table(issues, series, monitored_nums, has_monitoring) %}
 <div class="table-responsive">
   <table class="table table-hover align-middle mb-0">
     <thead>
       <tr>
-        <th class="ps-4" style="width:64px;">#</th>
+        <th class="ps-3" style="width:36px;"></th>
+        <th style="width:56px;">#</th>
         <th>Title</th>
         <th style="width:130px;">Date</th>
         <th style="width:180px;">Status</th>
@@ -11,8 +12,18 @@
     </thead>
     <tbody>
       {% for issue in issues %}
-      <tr>
-        <td class="ps-4 fw-medium text-muted small">{{ issue.number }}</td>
+      {% set norm_num = issue.number | string %}
+      {% set is_monitored = (not has_monitoring) or (norm_num in monitored_nums) %}
+      <tr class="{{ '' if is_monitored else 'opacity-50' }}">
+        <td class="ps-3">
+          <button class="btn btn-link btn-sm p-0 {{ 'text-warning' if is_monitored else 'text-muted' }}"
+                  hx-post="/series/{{ series.id }}/issues/{{ issue.number }}/monitor"
+                  hx-target="this" hx-swap="outerHTML"
+                  title="{{ 'Monitored' if is_monitored else 'Not monitored' }}">
+            <i class="bi {{ 'bi-bookmark-fill' if is_monitored else 'bi-bookmark' }}"></i>
+          </button>
+        </td>
+        <td class="fw-medium text-muted small">{{ issue.number }}</td>
         <td class="small">{{ issue.title or '—' }}</td>
         <td class="small text-muted">{{ issue.date | fmt_date if issue.date else '—' }}</td>
         <td>
@@ -50,7 +61,7 @@
 
 {% if regular_issues or annual_issues %}
 
-{{ issue_table(regular_issues, s) }}
+{{ issue_table(regular_issues, s, monitored_nums, has_monitoring) }}
 
 {% if annual_issues %}
 <div class="border-top d-flex align-items-center gap-2 px-4 py-2"
@@ -61,7 +72,7 @@
     {{ annual_issues | length }}
   </span>
 </div>
-{{ issue_table(annual_issues, s) }}
+{{ issue_table(annual_issues, s, monitored_nums, has_monitoring) }}
 {% endif %}
 
 {% else %}
@@ -81,6 +92,11 @@
     Not cached
     {% endif %}
   </span>
+  {% if has_monitoring %}
+  <span class="badge ms-1" style="background:rgba(255,193,7,0.15);color:#ffc107;font-size:0.65rem;">
+    <i class="bi bi-bookmark-fill me-1"></i>Selective · {{ monitored_nums | length }} monitored
+  </span>
+  {% endif %}
   <button class="btn btn-link btn-sm text-muted p-0 ms-auto"
           style="font-size:0.75rem;"
           hx-get="/series/{{ s.id }}/issues?force=1"
