@@ -55,14 +55,17 @@ _INVALID_CHARS = re.compile(r'[\\/*?"<>|;]')
 def sanitize_filename(name: str) -> str:
     """Replace OS-invalid characters so names are safe on Windows and Linux.
 
-    Spaces around ':' are absorbed: "Batman: Year One" → "Batman-Year One"
-    All other invalid chars (\\/*?"<>|;) → '-'
-    Collapses consecutive dashes and trims.
+    ':' and '/' (common Metron separators) → ' - ' to match the getcomics
+    naming convention: "Batman/Superman: World's Finest" → "Batman - Superman - World's Finest"
+    All other invalid chars (\\*?"<>|;) → '-'
+    Collapses consecutive separators and trims.
     """
-    name = re.sub(r'\s*:\s*', '-', name)   # "Batman: Year" → "Batman-Year"
+    name = re.sub(r'\s*:\s*', ' - ', name)   # "Batman: Year One" → "Batman - Year One"
+    name = re.sub(r'\s*/\s*', ' - ', name)   # "Batman/Superman" → "Batman - Superman"
     name = _INVALID_CHARS.sub("-", name)
-    name = re.sub(r'-{2,}', '-', name)     # collapse consecutive dashes
-    name = re.sub(r'\s{2,}', ' ', name)    # collapse double spaces
+    name = re.sub(r' - - ', ' - ', name)     # collapse doubled separators
+    name = re.sub(r'-{2,}', '-', name)       # collapse consecutive dashes
+    name = re.sub(r' {2,}', ' ', name)       # collapse double spaces
     return name.strip(" -")
 
 
