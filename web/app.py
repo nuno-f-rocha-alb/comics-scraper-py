@@ -744,6 +744,29 @@ def downloads_active(request: Request, db: Session = Depends(get_db)):
     )
 
 
+@app.delete("/downloads/{job_id}")
+def download_delete(job_id: int, db: Session = Depends(get_db)):
+    job = db.get(DownloadJob, job_id)
+    if job and job.status not in ("queued", "downloading"):
+        db.delete(job)
+        db.commit()
+    return Response(status_code=200)
+
+
+@app.delete("/downloads", response_class=HTMLResponse)
+def downloads_clear(db: Session = Depends(get_db)):
+    db.query(DownloadJob).filter(
+        DownloadJob.status.in_(["done", "failed"])
+    ).delete()
+    db.commit()
+    return HTMLResponse(
+        '<tr><td colspan="7" class="text-center text-muted py-5">'
+        '<i class="bi bi-inbox fs-2 d-block mb-2 opacity-50"></i>'
+        'No downloads yet. Click Download on a missing issue to start.'
+        "</td></tr>"
+    )
+
+
 @app.get("/downloads/badge", response_class=HTMLResponse)
 def downloads_badge(db: Session = Depends(get_db)):
     count = (

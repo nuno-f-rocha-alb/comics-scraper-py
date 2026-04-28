@@ -23,6 +23,16 @@
     <span class="badge ms-1" style="background:rgba(91,141,217,0.15);color:#5b8dd9;font-size:0.65rem;">
       {{ jobs | length }}
     </span>
+    {% if jobs %}
+    <button class="btn btn-sm btn-outline-danger ms-auto"
+            style="font-size:0.75rem;"
+            hx-delete="/downloads"
+            hx-confirm="Clear all completed and failed jobs?"
+            hx-target="#history-tbody"
+            hx-swap="innerHTML">
+      <i class="bi bi-trash me-1"></i>Clear All
+    </button>
+    {% endif %}
   </div>
   <div class="table-responsive">
     <table class="table table-hover align-middle mb-0">
@@ -34,12 +44,13 @@
           <th style="width:130px;">Status</th>
           <th>File</th>
           <th style="width:130px;">Date</th>
+          <th style="width:40px;"></th>
         </tr>
       </thead>
-      <tbody>
+      <tbody id="history-tbody">
         {% for job in jobs %}
         {% set s = series_map.get(job.series_id) %}
-        <tr>
+        <tr id="job-{{ job.id }}">
           <td class="ps-4 small fw-semibold">
             {% if s %}
             <a href="/series/{{ s.id }}" class="text-decoration-none">{{ s.series_name }}</a>
@@ -77,10 +88,21 @@
             {% endif %}
           </td>
           <td class="small text-muted">{{ job.created_at.strftime('%b %d, %H:%M') }}</td>
+          <td class="pe-3 text-end">
+            {% if job.status in ('done', 'failed') %}
+            <button class="btn btn-link btn-sm text-muted p-0"
+                    style="font-size:0.8rem;"
+                    hx-delete="/downloads/{{ job.id }}"
+                    hx-target="#job-{{ job.id }}"
+                    hx-swap="outerHTML">
+              <i class="bi bi-x-lg"></i>
+            </button>
+            {% endif %}
+          </td>
         </tr>
         {% else %}
         <tr>
-          <td colspan="6" class="text-center text-muted py-5">
+          <td colspan="7" class="text-center text-muted py-5">
             <i class="bi bi-inbox fs-2 d-block mb-2 opacity-50"></i>
             No downloads yet. Click Download on a missing issue to start.
           </td>
