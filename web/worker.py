@@ -59,9 +59,12 @@ def _download_issue(series, issue_number: str) -> str:
         return None, None
 
     # Precise search: series name + issue number
+    # '#' must be percent-encoded — bare '#' is a URL fragment separator and
+    # never reaches the server, so the issue number would be silently dropped
     term1 = f"{search_name} #{issue_number}"
+    encoded1 = term1.replace(' ', '+').replace('#', '%23')
     resp = requests.get(
-        f"{BASE_SEARCH_URL.format(1)}{term1.replace(' ', '+')}",
+        f"{BASE_SEARCH_URL.format(1)}{encoded1}",
         headers=HEADERS, timeout=15,
     )
     comic_url, comic_title = None, None
