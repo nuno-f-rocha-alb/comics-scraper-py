@@ -702,6 +702,7 @@ def monitor_all(series_id: int, db: Session = Depends(get_db)):
             norm = raw
         if norm not in existing:
             db.add(MonitoredIssue(series_id=series_id, issue_number=norm))
+            existing.add(norm)
     db.commit()
     return Response(status_code=200, headers={"HX-Trigger": "refresh-issues"})
 
