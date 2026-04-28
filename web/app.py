@@ -58,7 +58,8 @@ def get_db():
 
 
 def _series_dir(s: Series) -> str:
-    return os.path.join(COMICS_BASE_DIR, s.publisher, f"{s.series_name} ({s.year})")
+    from util import sanitize_filename
+    return os.path.join(COMICS_BASE_DIR, sanitize_filename(s.publisher), f"{sanitize_filename(s.series_name)} ({s.year})")
 
 
 def _count_local_issues(s: Series) -> int:

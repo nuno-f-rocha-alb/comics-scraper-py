@@ -35,8 +35,8 @@ def extract_year_from_comic_title(title):
 
 def create_series_directory(entry):
     """Creates a directory path based on publisher, series title, and year."""
-    publisher_dir = str(os.path.join(COMICS_BASE_DIR, entry[0]))
-    series_dir = os.path.join(publisher_dir, f"{entry[1]} ({entry[2]})")
+    publisher_dir = str(os.path.join(COMICS_BASE_DIR, sanitize_filename(entry[0])))
+    series_dir = os.path.join(publisher_dir, f"{sanitize_filename(entry[1])} ({entry[2]})")
     is_new = not os.path.exists(series_dir)
     os.makedirs(series_dir, exist_ok=True)
 
@@ -55,15 +55,14 @@ _INVALID_CHARS = re.compile(r'[\\/*?"<>|;]')
 def sanitize_filename(name: str) -> str:
     """Replace OS-invalid characters so names are safe on Windows and Linux.
 
-    ':'  → ' - '  (common in titles: "Batman: Year One" → "Batman - Year One")
-    everything else illegal → '-'
-    Collapses runs of spaces/dashes and strips leading/trailing whitespace.
+    Spaces around ':' are absorbed: "Batman: Year One" → "Batman-Year One"
+    All other invalid chars (\\/*?"<>|;) → '-'
+    Collapses consecutive dashes and trims.
     """
-    name = name.replace(":", " - ")
+    name = re.sub(r'\s*:\s*', '-', name)   # "Batman: Year" → "Batman-Year"
     name = _INVALID_CHARS.sub("-", name)
-    name = re.sub(r'\s{2,}', ' ', name)   # collapse double spaces
-    name = re.sub(r'-{2,}', '-', name)    # collapse double dashes
-    name = re.sub(r'\s-\s-\s', ' - ', name)  # clean up ' - - '
+    name = re.sub(r'-{2,}', '-', name)     # collapse consecutive dashes
+    name = re.sub(r'\s{2,}', ' ', name)    # collapse double spaces
     return name.strip(" -")
 
 

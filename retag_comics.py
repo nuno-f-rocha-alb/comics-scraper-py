@@ -66,7 +66,8 @@ def retag_directory(entry: tuple, directory: str, force: bool = False, dry_run: 
 
 def retag_series(entry: tuple, force: bool = False, dry_run: bool = False):
     """Tag all CBZ files for a series entry (main issues + annuals if configured)."""
-    series_dir = os.path.join(COMICS_BASE_DIR, entry[0], f"{entry[1]} ({entry[2]})")
+    from util import sanitize_filename
+    series_dir = os.path.join(COMICS_BASE_DIR, sanitize_filename(entry[0]), f"{sanitize_filename(entry[1])} ({entry[2]})")
 
     if not os.path.exists(series_dir):
         logging.info(f"Not found locally, skipping: {series_dir}")

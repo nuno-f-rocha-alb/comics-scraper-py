@@ -7,7 +7,7 @@ from config import *
 from downloader.download_file import download_file
 from downloader.get_comic_download_url import get_comic_download_url
 from downloader.process_downloaded_comic import process_downloaded_comic
-from util import normalize_title, extract_year_from_comic_title
+from util import normalize_title, extract_year_from_comic_title, sanitize_filename
 
 
 def _record_job(series_id, issue_number, search_term, status, filename=None, error=None):
@@ -147,7 +147,7 @@ def check_and_download_comics(
                 os.chown(annuals_dir, PUID, PGID)
                 existing_annual_files = {f for f in os.listdir(annuals_dir)}
 
-            annual_series_name = entry[1] + " Annual"
+            annual_series_name = sanitize_filename(entry[1]) + " Annual"
             annual_entry = (entry[0], annual_series_name, entry[2], annual_volume_id)
             comic_file_regex = re.compile(
                 fr"^{re.escape(annual_series_name)}\s*#{formatted_issue_number}\s*.*\.(cbr|cbz)$",
@@ -171,7 +171,7 @@ def check_and_download_comics(
 
         else:
             comic_file_regex = re.compile(
-                fr"^{re.escape(entry[1])}\s*#{formatted_issue_number}\s*.*\.(cbr|cbz)$",
+                fr"^{re.escape(sanitize_filename(entry[1]))}\s*#{formatted_issue_number}\s*.*\.(cbr|cbz)$",
                 re.IGNORECASE
             )
 
