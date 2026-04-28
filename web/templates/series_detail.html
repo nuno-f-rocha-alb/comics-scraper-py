@@ -99,7 +99,7 @@
   </div>
   <div id="issues-container"
        hx-get="/series/{{ s.id }}/issues"
-       hx-trigger="load"
+       hx-trigger="load, refresh-issues from:body"
        hx-swap="innerHTML"
        hx-indicator="#issues-spinner">
     <div class="text-center py-5 text-muted">

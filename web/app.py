@@ -679,6 +679,40 @@ def verify_search(
 
 # ── Download queue ────────────────────────────────────────────────────────────
 
+@app.post("/series/{series_id}/monitor-all")
+def monitor_all(series_id: int, db: Session = Depends(get_db)):
+    s = db.query(Series).filter(Series.id == series_id).first()
+    if not s:
+        raise HTTPException(status_code=404)
+    issue_ids: list[str] = []
+    if s.metron_series_id:
+        rows = db.query(MetronIssueCache).filter(MetronIssueCache.series_id == s.metron_series_id).all()
+        issue_ids += [r.number for r in rows if r.number]
+    if s.metron_annual_series_id:
+        rows = db.query(MetronIssueCache).filter(MetronIssueCache.series_id == s.metron_annual_series_id).all()
+        issue_ids += [r.number for r in rows if r.number]
+    existing = {
+        m.issue_number
+        for m in db.query(MonitoredIssue).filter(MonitoredIssue.series_id == series_id).all()
+    }
+    for raw in issue_ids:
+        try:
+            norm = str(int(float(raw)))
+        except (ValueError, TypeError):
+            norm = raw
+        if norm not in existing:
+            db.add(MonitoredIssue(series_id=series_id, issue_number=norm))
+    db.commit()
+    return Response(status_code=200, headers={"HX-Trigger": "refresh-issues"})
+
+
+@app.delete("/series/{series_id}/monitor-all")
+def unmonitor_all(series_id: int, db: Session = Depends(get_db)):
+    db.query(MonitoredIssue).filter(MonitoredIssue.series_id == series_id).delete()
+    db.commit()
+    return Response(status_code=200, headers={"HX-Trigger": "refresh-issues"})
+
+
 @app.post("/series/{series_id}/issues/{number}/monitor", response_class=HTMLResponse)
 def issue_monitor_toggle(series_id: int, number: str, db: Session = Depends(get_db)):
     s = db.query(Series).filter(Series.id == series_id).first()

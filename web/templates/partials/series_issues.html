@@ -3,7 +3,23 @@
   <table class="table table-hover align-middle mb-0">
     <thead>
       <tr>
-        <th class="ps-3" style="width:36px;"></th>
+        <th class="ps-3" style="width:36px;">
+          {% if has_monitoring %}
+          <button class="btn btn-link btn-sm p-0 text-warning"
+                  hx-delete="/series/{{ series.id }}/monitor-all"
+                  hx-target="body" hx-swap="none"
+                  title="Unmonitor all">
+            <i class="bi bi-bookmark-dash-fill"></i>
+          </button>
+          {% else %}
+          <button class="btn btn-link btn-sm p-0 text-muted"
+                  hx-post="/series/{{ series.id }}/monitor-all"
+                  hx-target="body" hx-swap="none"
+                  title="Monitor all">
+            <i class="bi bi-bookmark"></i>
+          </button>
+          {% endif %}
+        </th>
         <th style="width:56px;">#</th>
         <th>Title</th>
         <th style="width:130px;">Date</th>
