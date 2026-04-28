@@ -49,6 +49,24 @@ def create_series_directory(entry):
     return str(series_dir)
 
 
+_INVALID_CHARS = re.compile(r'[\\/*?"<>|;]')
+
+
+def sanitize_filename(name: str) -> str:
+    """Replace OS-invalid characters so names are safe on Windows and Linux.
+
+    ':'  → ' - '  (common in titles: "Batman: Year One" → "Batman - Year One")
+    everything else illegal → '-'
+    Collapses runs of spaces/dashes and strips leading/trailing whitespace.
+    """
+    name = name.replace(":", " - ")
+    name = _INVALID_CHARS.sub("-", name)
+    name = re.sub(r'\s{2,}', ' ', name)   # collapse double spaces
+    name = re.sub(r'-{2,}', '-', name)    # collapse double dashes
+    name = re.sub(r'\s-\s-\s', ' - ', name)  # clean up ' - - '
+    return name.strip(" -")
+
+
 def normalize_title(title):
     """Normalize the title by converting to lowercase, stripping common prefixes, and replacing dashes."""
     title = title.lower()

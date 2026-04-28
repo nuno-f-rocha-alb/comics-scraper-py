@@ -18,11 +18,24 @@
 
 <!-- Full history -->
 <div class="card mt-3">
-  <div class="card-header py-3 d-flex align-items-center gap-2">
+  <div class="card-header py-3 d-flex align-items-center gap-2 flex-wrap">
     <span class="fw-semibold">History</span>
     <span class="badge ms-1" style="background:rgba(91,141,217,0.15);color:#5b8dd9;font-size:0.65rem;">
       {{ jobs | length }}
     </span>
+
+    <!-- Filter by source -->
+    <div class="ms-3 d-flex gap-1" style="font-size:0.75rem;">
+      <button class="btn btn-sm btn-outline-secondary py-0 px-2 active" id="filter-all"
+              onclick="filterJobs('all', this)">All</button>
+      <button class="btn btn-sm btn-outline-secondary py-0 px-2" id="filter-scraper"
+              onclick="filterJobs('scraper', this)">Scraper</button>
+      <button class="btn btn-sm btn-outline-secondary py-0 px-2" id="filter-manual"
+              onclick="filterJobs('manual', this)">Manual</button>
+      <button class="btn btn-sm btn-outline-secondary py-0 px-2" id="filter-failed"
+              onclick="filterJobs('failed', this)">Failed</button>
+    </div>
+
     {% if jobs %}
     <button class="btn btn-sm btn-outline-danger ms-auto"
             style="font-size:0.75rem;"
@@ -38,19 +51,21 @@
     <table class="table table-hover align-middle mb-0">
       <thead>
         <tr>
-          <th class="ps-4" style="width:200px;">Series</th>
-          <th style="width:70px;">Issue</th>
-          <th>Search Term</th>
-          <th style="width:130px;">Status</th>
-          <th>File</th>
-          <th style="width:130px;">Date</th>
+          <th class="ps-4" style="width:190px;">Series</th>
+          <th style="width:60px;">#</th>
+          <th>Search Term / Error</th>
+          <th style="width:90px;">Source</th>
+          <th style="width:110px;">Status</th>
+          <th style="width:120px;">Date</th>
           <th style="width:40px;"></th>
         </tr>
       </thead>
       <tbody id="history-tbody">
         {% for job in jobs %}
         {% set s = series_map.get(job.series_id) %}
-        <tr id="job-{{ job.id }}">
+        <tr id="job-{{ job.id }}"
+            data-source="{{ job.source }}"
+            data-status="{{ job.status }}">
           <td class="ps-4 small fw-semibold">
             {% if s %}
             <a href="/series/{{ s.id }}" class="text-decoration-none">{{ s.series_name }}</a>
@@ -59,15 +74,36 @@
             {% endif %}
           </td>
           <td class="small fw-medium">#{{ job.issue_number }}</td>
-          <td class="small text-muted">{{ job.search_term }}</td>
+          <td class="small" style="word-break:break-all;">
+            {% if job.status == 'failed' and job.error %}
+            <span class="text-danger" style="font-size:0.75rem;">
+              <i class="bi bi-exclamation-circle-fill me-1"></i>{{ job.error }}
+            </span>
+            {% else %}
+            <span class="text-muted">{{ job.search_term }}</span>
+            {% if job.filename %}
+            <div style="font-size:0.7rem;color:#6c757d;opacity:0.7;">{{ job.filename }}</div>
+            {% endif %}
+            {% endif %}
+          </td>
+          <td>
+            {% if job.source == 'scraper' %}
+            <span class="badge" style="background:rgba(91,141,217,0.12);color:#5b8dd9;font-size:0.65rem;">
+              <i class="bi bi-clock me-1"></i>Scraper
+            </span>
+            {% else %}
+            <span class="badge" style="background:rgba(108,117,125,0.12);color:#6c757d;font-size:0.65rem;">
+              <i class="bi bi-hand-index me-1"></i>Manual
+            </span>
+            {% endif %}
+          </td>
           <td>
             {% if job.status == 'done' %}
             <span class="badge badge-active">
               <i class="bi bi-check-circle-fill me-1"></i>Done
             </span>
             {% elif job.status == 'failed' %}
-            <span class="badge" style="background:rgba(220,53,69,0.12);color:#dc3545;"
-                  data-bs-toggle="tooltip" title="{{ job.error or '' }}">
+            <span class="badge" style="background:rgba(220,53,69,0.12);color:#dc3545;">
               <i class="bi bi-x-circle-fill me-1"></i>Failed
             </span>
             {% elif job.status == 'downloading' %}
@@ -78,13 +114,6 @@
             <span class="badge" style="background:rgba(255,193,7,0.15);color:#ffc107;">
               <i class="bi bi-hourglass-split me-1"></i>Queued
             </span>
-            {% endif %}
-          </td>
-          <td class="small text-muted" style="word-break:break-all;">
-            {% if job.status == 'failed' and job.error %}
-            <span class="text-danger" style="font-size:0.75rem;">{{ job.error }}</span>
-            {% else %}
-            {{ job.filename or '—' }}
             {% endif %}
           </td>
           <td class="small text-muted">{{ job.created_at.strftime('%b %d, %H:%M') }}</td>
@@ -104,7 +133,7 @@
         <tr>
           <td colspan="7" class="text-center text-muted py-5">
             <i class="bi bi-inbox fs-2 d-block mb-2 opacity-50"></i>
-            No downloads yet. Click Download on a missing issue to start.
+            No downloads yet.
           </td>
         </tr>
         {% endfor %}
@@ -114,9 +143,14 @@
 </div>
 
 <script>
-  // Enable Bootstrap tooltips for error messages
-  document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(el => {
-    new bootstrap.Tooltip(el, { placement: 'left' });
+function filterJobs(type, btn) {
+  document.querySelectorAll('#history-tbody tr[data-source]').forEach(row => {
+    const matchSource = type === 'all' || row.dataset.source === type;
+    const matchFailed = type !== 'failed' || row.dataset.status === 'failed';
+    row.style.display = (matchSource && matchFailed) ? '' : 'none';
   });
+  document.querySelectorAll('[id^="filter-"]').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+}
 </script>
 {% endblock %}

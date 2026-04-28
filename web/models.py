@@ -93,6 +93,8 @@ class DownloadJob(Base):
     issue_number: Mapped[str] = mapped_column(String, nullable=False)
     search_term: Mapped[str] = mapped_column(String, nullable=False)
     status: Mapped[str] = mapped_column(String, nullable=False, default="queued")
+    # 'manual' = triggered from web UI; 'scraper' = triggered by scheduled job
+    source: Mapped[str] = mapped_column(String, nullable=False, default="manual", server_default="manual")
     filename: Mapped[str | None] = mapped_column(String, nullable=True)
     error: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(

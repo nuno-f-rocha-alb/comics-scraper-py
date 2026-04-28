@@ -3,6 +3,7 @@ import time
 from urllib.parse import urlparse
 import requests
 from tqdm_loggable.auto import tqdm
+from util import sanitize_filename
 
 
 def download_file(url, save_dir, series_name, issue_number, volume_year):
@@ -16,7 +17,8 @@ def download_file(url, save_dir, series_name, issue_number, volume_year):
 
     total_size = int(response.headers.get('Content-Length', 0))
 
-    save_path = os.path.join(save_dir, f"{series_name} #{issue_number} ({volume_year}){file_extension}")
+    safe_name = sanitize_filename(series_name)
+    save_path = os.path.join(save_dir, f"{safe_name} #{issue_number} ({volume_year}){file_extension}")
 
     with open(save_path, 'wb') as f:
         # Create a tqdm progress bar

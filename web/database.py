@@ -52,6 +52,12 @@ def migrate_columns():
                 conn.execute(text("DROP TABLE monitored_issues"))
                 conn.execute(text("ALTER TABLE monitored_issues_new RENAME TO monitored_issues"))
 
+        # Add source column to download_jobs (manual vs scraper)
+        if "download_jobs" in tables:
+            dj_cols = [c["name"] for c in inspector.get_columns("download_jobs")]
+            if "source" not in dj_cols:
+                conn.execute(text("ALTER TABLE download_jobs ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'"))
+
         conn.commit()
 
 

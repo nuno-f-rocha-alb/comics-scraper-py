@@ -26,10 +26,13 @@ def _load_series() -> list[tuple]:
                 .filter(MonitoredIssue.series_id == r.id)
                 .all()
             )
-            monitored_set = (
-                frozenset(m.issue_number for m in monitored) if monitored else None
-            )
-            result.append((r.to_scraper_tuple(), monitored_set))
+            if monitored:
+                monitored_regular = frozenset(m.issue_number for m in monitored if m.issue_type == "regular")
+                monitored_annual  = frozenset(m.issue_number for m in monitored if m.issue_type == "annual")
+            else:
+                monitored_regular = None
+                monitored_annual  = None
+            result.append((r.id, r.to_scraper_tuple(), monitored_regular, monitored_annual))
 
     if not result:
         logging.warning("No series found in DB. Run migrate_series_list.py first.")
@@ -40,12 +43,17 @@ def run_scraper():
     start_time = time.time()
     series_list = _load_series()
 
-    for entry, monitored_set in series_list:
+    for series_id, entry, monitored_regular, monitored_annual in series_list:
         logging.info("Searching for comics in series: %s by %s", entry[1], entry[0])
         available_comics = search_comics(entry)
         if available_comics:
             local_dir = create_series_directory(entry)
-            check_and_download_comics(entry, available_comics, local_dir, monitored_set=monitored_set)
+            check_and_download_comics(
+                entry, available_comics, local_dir,
+                series_id=series_id,
+                monitored_regular=monitored_regular,
+                monitored_annual=monitored_annual,
+            )
         else:
             logging.warning("No comics found for series: %s", entry[1])
 

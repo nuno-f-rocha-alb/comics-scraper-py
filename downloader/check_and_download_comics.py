@@ -1,5 +1,7 @@
+import os
 import time
 import re
+from datetime import datetime, timezone
 
 from config import *
 from downloader.download_file import download_file
@@ -8,11 +10,53 @@ from downloader.process_downloaded_comic import process_downloaded_comic
 from util import normalize_title, extract_year_from_comic_title
 
 
-def check_and_download_comics(entry, available_comics, local_dir, *, monitored_set=None):
-    """Compares available comics with local files and downloads new ones if not already present, ignoring non-matching titles.
+def _record_job(series_id, issue_number, search_term, status, filename=None, error=None):
+    """Write a DownloadJob record to the DB. Silent no-op if series_id is None."""
+    if series_id is None:
+        return
+    try:
+        from web.database import SessionLocal
+        from web.models import DownloadJob
+        with SessionLocal() as db:
+            db.add(DownloadJob(
+                series_id=series_id,
+                issue_number=issue_number,
+                search_term=search_term,
+                status=status,
+                source="scraper",
+                filename=os.path.basename(filename) if filename else None,
+                error=error,
+                finished_at=datetime.now(timezone.utc),
+            ))
+            db.commit()
+    except Exception as exc:
+        logging.warning("Failed to record download job: %s", exc)
+
+
+def check_and_download_comics(
+    entry,
+    available_comics,
+    local_dir,
+    *,
+    series_id=None,
+    monitored_regular=None,
+    monitored_annual=None,
+    # Legacy kwarg kept for callers that haven't been updated yet
+    monitored_set=None,
+):
+    """Compare available comics with local files and download new ones.
 
     Downloads all new issues first, then processes metadata in batch at the end.
+    series_id: DB id used to write DownloadJob records (None = don't record).
+    monitored_regular / monitored_annual: frozenset of issue numbers to download per type.
+      None means "all" (default); an empty set means "none selected".
+    monitored_set: legacy single-set kwarg; used only if the typed sets are both None.
     """
+
+    # Back-compat: if old callers pass monitored_set, apply it to both types
+    if monitored_regular is None and monitored_annual is None and monitored_set is not None:
+        monitored_regular = monitored_set
+        monitored_annual  = monitored_set
 
     normalized_series_name = normalize_title(entry[1])
     normalized_annual_name = normalized_series_name + " annual"
@@ -24,7 +68,6 @@ def check_and_download_comics(entry, available_comics, local_dir, *, monitored_s
     ignore_keywords = ['Access', 'Preview', 'TPB']
 
     existing_files = {f for f in os.listdir(local_dir)}
-
     annuals_dir = os.path.join(local_dir, "Annuals")
     existing_annual_files = None
 
@@ -44,7 +87,7 @@ def check_and_download_comics(entry, available_comics, local_dir, *, monitored_s
 
         base_title_clean = ' '.join(re.sub(r'\b\d{4}\b', '', base_title).split())
 
-        is_main = base_title == normalized_series_name
+        is_main   = base_title == normalized_series_name
         is_annual = base_title == normalized_annual_name or base_title_clean == normalized_annual_name
 
         if not is_main and not is_annual:
@@ -87,14 +130,14 @@ def check_and_download_comics(entry, available_comics, local_dir, *, monitored_s
                 logging.info(f"Ignoring {title}: issue #{num} is above issue_max={issue_max}.")
                 continue
 
-        # Apply selective monitoring — if any issues are explicitly monitored,
-        # only download those; None means "all" (default behaviour)
-        if monitored_set is not None:
+        # Apply selective monitoring per type
+        monitored = monitored_annual if is_annual else monitored_regular
+        if monitored is not None:
             try:
                 norm_num = str(int(float(issue_number)))
             except (ValueError, TypeError):
                 norm_num = issue_number
-            if norm_num not in monitored_set:
+            if norm_num not in monitored:
                 logging.info(f"Ignoring {title}: issue #{issue_number} not in monitored set.")
                 continue
 
@@ -116,10 +159,12 @@ def check_and_download_comics(entry, available_comics, local_dir, *, monitored_s
                 download_url = get_comic_download_url(comic_url)
                 if download_url:
                     save_path = download_file(download_url, annuals_dir, annual_series_name, formatted_issue_number, entry[2])
+                    _record_job(series_id, issue_number, title, "done", filename=save_path)
                     downloaded.append((annual_entry, save_path, issue_number))
                     existing_annual_files = {f for f in os.listdir(annuals_dir)}
                 else:
                     logging.warning(f"Download link not found for {title}.")
+                    _record_job(series_id, issue_number, title, "failed", error="Download link not found")
                 time.sleep(1)
             else:
                 logging.info(f"{title} already exists locally in an alternate format.")
@@ -135,10 +180,12 @@ def check_and_download_comics(entry, available_comics, local_dir, *, monitored_s
                 download_url = get_comic_download_url(comic_url)
                 if download_url:
                     save_path = download_file(download_url, local_dir, entry[1], formatted_issue_number, entry[2])
+                    _record_job(series_id, issue_number, title, "done", filename=save_path)
                     downloaded.append((entry, save_path, issue_number))
                     existing_files = {f for f in os.listdir(local_dir)}
                 else:
                     logging.warning(f"Download link not found for {title}.")
+                    _record_job(series_id, issue_number, title, "failed", error="Download link not found")
                 time.sleep(1)
             else:
                 logging.info(f"{title} already exists locally in an alternate format.")
