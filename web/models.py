@@ -6,6 +6,9 @@ from web.database import Base
 
 
 
+
+
+
 class Series(Base):
     __tablename__ = "series"
     __table_args__ = (UniqueConstraint("publisher", "series_name", "year", name="uq_series"),)
@@ -52,6 +55,25 @@ class Series(Base):
 
     def __repr__(self) -> str:
         return f"<Series {self.publisher}/{self.series_name} ({self.year})>"
+
+
+class DownloadJob(Base):
+    __tablename__ = "download_jobs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    series_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    issue_number: Mapped[str] = mapped_column(String, nullable=False)
+    search_term: Mapped[str] = mapped_column(String, nullable=False)
+    status: Mapped[str] = mapped_column(String, nullable=False, default="queued")
+    filename: Mapped[str | None] = mapped_column(String, nullable=True)
+    error: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
+    )
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    def __repr__(self) -> str:
+        return f"<DownloadJob series={self.series_id} issue={self.issue_number} status={self.status}>"
 
 
 class MetronCache(Base):

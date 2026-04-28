@@ -1,4 +1,4 @@
-{% macro issue_table(issues) %}
+{% macro issue_table(issues, series) %}
 <div class="table-responsive">
   <table class="table table-hover align-middle mb-0">
     <thead>
@@ -6,7 +6,7 @@
         <th class="ps-4" style="width:64px;">#</th>
         <th>Title</th>
         <th style="width:130px;">Date</th>
-        <th style="width:148px;">Status</th>
+        <th style="width:180px;">Status</th>
       </tr>
     </thead>
     <tbody>
@@ -21,8 +21,15 @@
             <i class="bi bi-check-circle-fill me-1"></i>Downloaded
           </span>
           {% elif issue.status == 'missing' %}
-          <span class="badge" style="background:rgba(220,53,69,0.12); color:#dc3545;">
+          <span class="badge"
+                style="background:rgba(220,53,69,0.12); color:#dc3545; cursor:pointer;"
+                hx-post="/series/{{ series.id }}/issues/{{ issue.number }}/download"
+                hx-target="closest td"
+                hx-swap="innerHTML"
+                hx-confirm="Download {{ series.series_name }} #{{ issue.number }}?"
+                role="button">
             <i class="bi bi-x-circle-fill me-1"></i>Missing
+            <i class="bi bi-download ms-1 opacity-75"></i>
           </span>
           {% elif issue.status == 'upcoming' %}
           <span class="badge" style="background:rgba(13,110,253,0.12); color:#0d6efd;">
@@ -43,7 +50,7 @@
 
 {% if regular_issues or annual_issues %}
 
-{{ issue_table(regular_issues) }}
+{{ issue_table(regular_issues, s) }}
 
 {% if annual_issues %}
 <div class="border-top d-flex align-items-center gap-2 px-4 py-2"
@@ -54,7 +61,7 @@
     {{ annual_issues | length }}
   </span>
 </div>
-{{ issue_table(annual_issues) }}
+{{ issue_table(annual_issues, s) }}
 {% endif %}
 
 {% else %}

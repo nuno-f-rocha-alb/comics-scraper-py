@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% block title %}Downloads — Comics Scraper{% endblock %}
+{% block content %}
+
+<div class="d-flex align-items-center gap-3 mb-4">
+  <h4 class="fw-bold mb-0">Downloads</h4>
+</div>
+
+<!-- Active jobs (polled every 3s) -->
+<div id="active-jobs"
+     hx-get="/downloads/active"
+     hx-trigger="load, every 3s"
+     hx-swap="innerHTML">
+  <div class="text-center py-3 text-muted small">
+    <div class="spinner-border spinner-border-sm me-2"></div>Loading…
+  </div>
+</div>
+
+<!-- Full history -->
+<div class="card mt-3">
+  <div class="card-header py-3 d-flex align-items-center gap-2">
+    <span class="fw-semibold">History</span>
+    <span class="badge ms-1" style="background:rgba(91,141,217,0.15);color:#5b8dd9;font-size:0.65rem;">
+      {{ jobs | length }}
+    </span>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-hover align-middle mb-0">
+      <thead>
+        <tr>
+          <th class="ps-4" style="width:200px;">Series</th>
+          <th style="width:70px;">Issue</th>
+          <th>Search Term</th>
+          <th style="width:130px;">Status</th>
+          <th>File</th>
+          <th style="width:130px;">Date</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for job in jobs %}
+        {% set s = series_map.get(job.series_id) %}
+        <tr>
+          <td class="ps-4 small fw-semibold">
+            {% if s %}
+            <a href="/series/{{ s.id }}" class="text-decoration-none">{{ s.series_name }}</a>
+            {% else %}
+            <span class="text-muted">#{{ job.series_id }}</span>
+            {% endif %}
+          </td>
+          <td class="small fw-medium">#{{ job.issue_number }}</td>
+          <td class="small text-muted">{{ job.search_term }}</td>
+          <td>
+            {% if job.status == 'done' %}
+            <span class="badge badge-active">
+              <i class="bi bi-check-circle-fill me-1"></i>Done
+            </span>
+            {% elif job.status == 'failed' %}
+            <span class="badge" style="background:rgba(220,53,69,0.12);color:#dc3545;"
+                  data-bs-toggle="tooltip" title="{{ job.error or '' }}">
+              <i class="bi bi-x-circle-fill me-1"></i>Failed
+            </span>
+            {% elif job.status == 'downloading' %}
+            <span class="badge" style="background:rgba(13,110,253,0.12);color:#0d6efd;">
+              <i class="bi bi-arrow-down-circle-fill me-1"></i>Downloading
+            </span>
+            {% else %}
+            <span class="badge" style="background:rgba(255,193,7,0.15);color:#ffc107;">
+              <i class="bi bi-hourglass-split me-1"></i>Queued
+            </span>
+            {% endif %}
+          </td>
+          <td class="small text-muted" style="word-break:break-all;">
+            {% if job.status == 'failed' and job.error %}
+            <span class="text-danger" style="font-size:0.75rem;">{{ job.error }}</span>
+            {% else %}
+            {{ job.filename or '—' }}
+            {% endif %}
+          </td>
+          <td class="small text-muted">{{ job.created_at.strftime('%b %d, %H:%M') }}</td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="6" class="text-center text-muted py-5">
+            <i class="bi bi-inbox fs-2 d-block mb-2 opacity-50"></i>
+            No downloads yet. Click Download on a missing issue to start.
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+  // Enable Bootstrap tooltips for error messages
+  document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(el => {
+    new bootstrap.Tooltip(el, { placement: 'left' });
+  });
+</script>
+{% endblock %}

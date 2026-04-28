@@ -11,7 +11,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from web.database import SessionLocal, init_db
-from web.models import MetronCache, MetronIssueCache, Series
+from web.models import DownloadJob, MetronCache, MetronIssueCache, Series
 
 COMICS_BASE_DIR = os.getenv("COMICS_BASE_DIR", "/app/comics")
 
@@ -19,6 +19,8 @@ COMICS_BASE_DIR = os.getenv("COMICS_BASE_DIR", "/app/comics")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
+    from web import worker
+    worker.start()
     yield
 
 
@@ -673,6 +675,88 @@ def verify_search(
         return HTMLResponse(
             f'<div class="alert alert-danger mt-2 py-2 small">Verify error: {exc}</div>'
         )
+
+
+# ── Download queue ────────────────────────────────────────────────────────────
+
+@app.post("/series/{series_id}/issues/{number}/download", response_class=HTMLResponse)
+def issue_download(series_id: int, number: str, db: Session = Depends(get_db)):
+    s = db.query(Series).filter(Series.id == series_id).first()
+    if not s:
+        raise HTTPException(status_code=404)
+
+    # Don't queue a duplicate for the same issue already in progress
+    existing = (
+        db.query(DownloadJob)
+        .filter(
+            DownloadJob.series_id == series_id,
+            DownloadJob.issue_number == number,
+            DownloadJob.status.in_(["queued", "downloading"]),
+        )
+        .first()
+    )
+    if not existing:
+        search_name = s.getcomics_search_name or s.series_name
+        job = DownloadJob(
+            series_id=series_id,
+            issue_number=number,
+            search_term=f"{search_name} #{number} ({s.year})",
+            status="queued",
+        )
+        db.add(job)
+        db.commit()
+        from web import worker
+        worker.enqueue(job.id)
+
+    return HTMLResponse(
+        '<span class="badge" style="background:rgba(255,193,7,0.15);color:#ffc107;">'
+        '<i class="bi bi-hourglass-split me-1"></i>Queued</span>'
+    )
+
+
+@app.get("/downloads", response_class=HTMLResponse)
+def downloads_page(request: Request, db: Session = Depends(get_db)):
+    jobs = (
+        db.query(DownloadJob)
+        .order_by(DownloadJob.created_at.desc())
+        .limit(200)
+        .all()
+    )
+    series_map = {s.id: s for s in db.query(Series).all()}
+    return templates.TemplateResponse(
+        "downloads.html",
+        {"request": request, "jobs": jobs, "series_map": series_map},
+    )
+
+
+@app.get("/downloads/active", response_class=HTMLResponse)
+def downloads_active(request: Request, db: Session = Depends(get_db)):
+    active = (
+        db.query(DownloadJob)
+        .filter(DownloadJob.status.in_(["queued", "downloading"]))
+        .order_by(DownloadJob.created_at)
+        .all()
+    )
+    series_map = {s.id: s for s in db.query(Series).all()}
+    return templates.TemplateResponse(
+        "partials/downloads_active.html",
+        {"request": request, "jobs": active, "series_map": series_map},
+    )
+
+
+@app.get("/downloads/badge", response_class=HTMLResponse)
+def downloads_badge(db: Session = Depends(get_db)):
+    count = (
+        db.query(DownloadJob)
+        .filter(DownloadJob.status.in_(["queued", "downloading"]))
+        .count()
+    )
+    if count:
+        return HTMLResponse(
+            f'<span id="dl-badge" class="badge rounded-pill ms-auto"'
+            f' style="background:#0d6efd;font-size:0.65rem;">{count}</span>'
+        )
+    return HTMLResponse('<span id="dl-badge"></span>')
 
 
 # ── HTML pages ─────────────────────────────────────────────────────────────────
