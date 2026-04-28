@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from datetime import date, datetime, timezone
 from urllib.parse import quote
 
-from fastapi import Depends, FastAPI, Form, HTTPException, Request, Response
+from fastapi import Depends, FastAPI, Form, HTTPException, Query, Request, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -567,7 +567,19 @@ def metron_cache_refresh(db: Session = Depends(get_db)):
 
 
 @app.get("/api/metron/series/{metron_id}/add-form", response_class=HTMLResponse)
-def metron_series_add_form(request: Request, metron_id: int):
+def metron_series_add_form(request: Request, metron_id: int, db: Session = Depends(get_db)):
+    cached = db.get(MetronCache, metron_id)
+    if cached is not None:
+        data = {
+            "id": cached.metron_id,
+            "name": cached.name,
+            "image": cached.image_url or "",
+            "publisher": {"name": cached.publisher_name} if cached.publisher_name else None,
+            "year_began": cached.year_began,
+            "issue_count": cached.issue_count,
+            "cv_id": cached.cv_id,
+        }
+        return templates.TemplateResponse("partials/add_form.html", {"request": request, "series": data})
     try:
         from config import METRON_BASE_URL
         from metadata.metron_client import get as metron_get
@@ -684,25 +696,30 @@ def monitor_all(series_id: int, db: Session = Depends(get_db)):
     s = db.query(Series).filter(Series.id == series_id).first()
     if not s:
         raise HTTPException(status_code=404)
-    issue_ids: list[str] = []
+
+    def _insert_type(metron_series_id: int, issue_type: str) -> None:
+        rows = db.query(MetronIssueCache).filter(MetronIssueCache.series_id == metron_series_id).all()
+        existing = {
+            m.issue_number
+            for m in db.query(MonitoredIssue)
+                .filter(MonitoredIssue.series_id == series_id, MonitoredIssue.issue_type == issue_type)
+                .all()
+        }
+        for row in rows:
+            if not row.number:
+                continue
+            try:
+                norm = str(int(float(row.number)))
+            except (ValueError, TypeError):
+                norm = row.number
+            if norm not in existing:
+                db.add(MonitoredIssue(series_id=series_id, issue_number=norm, issue_type=issue_type))
+                existing.add(norm)
+
     if s.metron_series_id:
-        rows = db.query(MetronIssueCache).filter(MetronIssueCache.series_id == s.metron_series_id).all()
-        issue_ids += [r.number for r in rows if r.number]
+        _insert_type(s.metron_series_id, "regular")
     if s.metron_annual_series_id:
-        rows = db.query(MetronIssueCache).filter(MetronIssueCache.series_id == s.metron_annual_series_id).all()
-        issue_ids += [r.number for r in rows if r.number]
-    existing = {
-        m.issue_number
-        for m in db.query(MonitoredIssue).filter(MonitoredIssue.series_id == series_id).all()
-    }
-    for raw in issue_ids:
-        try:
-            norm = str(int(float(raw)))
-        except (ValueError, TypeError):
-            norm = raw
-        if norm not in existing:
-            db.add(MonitoredIssue(series_id=series_id, issue_number=norm))
-            existing.add(norm)
+        _insert_type(s.metron_annual_series_id, "annual")
     db.commit()
     return Response(status_code=200, headers={"HX-Trigger": "refresh-issues"})
 
@@ -715,11 +732,17 @@ def unmonitor_all(series_id: int, db: Session = Depends(get_db)):
 
 
 @app.post("/series/{series_id}/issues/{number}/monitor", response_class=HTMLResponse)
-def issue_monitor_toggle(series_id: int, number: str, db: Session = Depends(get_db)):
+def issue_monitor_toggle(
+    series_id: int,
+    number: str,
+    type: str = Query(default="regular"),
+    db: Session = Depends(get_db),
+):
     s = db.query(Series).filter(Series.id == series_id).first()
     if not s:
         raise HTTPException(status_code=404)
 
+    issue_type = type if type in ("regular", "annual") else "regular"
     try:
         norm = str(int(float(number)))
     except (ValueError, TypeError):
@@ -727,7 +750,11 @@ def issue_monitor_toggle(series_id: int, number: str, db: Session = Depends(get_
 
     existing = (
         db.query(MonitoredIssue)
-        .filter(MonitoredIssue.series_id == series_id, MonitoredIssue.issue_number == norm)
+        .filter(
+            MonitoredIssue.series_id == series_id,
+            MonitoredIssue.issue_number == norm,
+            MonitoredIssue.issue_type == issue_type,
+        )
         .first()
     )
     if existing:
@@ -735,26 +762,25 @@ def issue_monitor_toggle(series_id: int, number: str, db: Session = Depends(get_
         db.commit()
         monitored = False
     else:
-        db.add(MonitoredIssue(series_id=series_id, issue_number=norm))
+        db.add(MonitoredIssue(series_id=series_id, issue_number=norm, issue_type=issue_type))
         db.commit()
         monitored = True
 
-    return HTMLResponse(_monitor_btn(series_id, number, monitored))
+    return HTMLResponse(_monitor_btn(series_id, number, monitored, issue_type))
 
 
-def _monitor_btn(series_id: int, number: str, monitored: bool) -> str:
+def _monitor_btn(series_id: int, number: str, monitored: bool, issue_type: str = "regular") -> str:
+    url = f"/series/{series_id}/issues/{number}/monitor?type={issue_type}"
     if monitored:
         return (
             f'<button class="btn btn-link btn-sm p-0 text-warning"'
-            f' hx-post="/series/{series_id}/issues/{number}/monitor"'
-            f' hx-target="this" hx-swap="outerHTML"'
+            f' hx-post="{url}" hx-target="this" hx-swap="outerHTML"'
             f' title="Monitored — click to unmonitor">'
             f'<i class="bi bi-bookmark-fill"></i></button>'
         )
     return (
         f'<button class="btn btn-link btn-sm p-0 text-muted"'
-        f' hx-post="/series/{series_id}/issues/{number}/monitor"'
-        f' hx-target="this" hx-swap="outerHTML"'
+        f' hx-post="{url}" hx-target="this" hx-swap="outerHTML"'
         f' title="Not monitored — click to monitor">'
         f'<i class="bi bi-bookmark"></i></button>'
     )
@@ -1091,7 +1117,9 @@ def series_issues_partial(
     monitored_rows = (
         db.query(MonitoredIssue).filter(MonitoredIssue.series_id == s.id).all()
     )
-    monitored_nums = {m.issue_number for m in monitored_rows}
+    monitored_regular = {m.issue_number for m in monitored_rows if m.issue_type == "regular"}
+    monitored_annual = {m.issue_number for m in monitored_rows if m.issue_type == "annual"}
+    has_monitoring = bool(monitored_rows)
     return templates.TemplateResponse(
         "partials/series_issues.html",
         {
@@ -1100,7 +1128,44 @@ def series_issues_partial(
             "regular_issues": regular_issues,
             "annual_issues": annual_issues,
             "cached_at": first.cached_at if first else None,
-            "monitored_nums": monitored_nums,
-            "has_monitoring": bool(monitored_nums),
+            "monitored_regular": monitored_regular,
+            "monitored_annual": monitored_annual,
+            "has_monitoring": has_monitoring,
         },
     )
+
+
+# ── Library scan ───────────────────────────────────────────────────────────────
+
+from web import scanner as _scanner
+
+
+@app.get("/library", response_class=HTMLResponse)
+def library_page(request: Request):
+    return templates.TemplateResponse(
+        "library.html", {"request": request, "status": _scanner.get_status()}
+    )
+
+
+@app.get("/library/status", response_class=HTMLResponse)
+def library_status(request: Request):
+    return templates.TemplateResponse(
+        "partials/library_status.html", {"request": request, "status": _scanner.get_status()}
+    )
+
+
+@app.post("/library/scan")
+def library_scan(force: bool = Form(default=False), db: Session = Depends(get_db)):
+    from retag_comics import load_series_from_db
+    series_list = load_series_from_db()
+    _scanner.run_scan(series_list, force=force)
+    return Response(status_code=200, headers={"HX-Trigger": "refresh-scan-status"})
+
+
+@app.post("/series/{series_id}/scan")
+def series_scan(series_id: int, force: bool = Form(default=False), db: Session = Depends(get_db)):
+    s = db.query(Series).filter(Series.id == series_id).first()
+    if not s:
+        raise HTTPException(status_code=404)
+    _scanner.run_scan([s.to_scraper_tuple()], force=force)
+    return Response(status_code=200, headers={"HX-Trigger": "refresh-scan-status"})

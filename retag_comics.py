@@ -13,8 +13,7 @@ import re
 
 from comicapi.comicarchive import ComicArchive
 
-from comic_search.read_series_list import read_series_list
-from config import SERIES_FILE_PATH, COMICS_BASE_DIR, PUID, PGID
+from config import COMICS_BASE_DIR, PUID, PGID
 from metadata.get_comic_metadata import get_comic_metadata
 from metadata.tag_cbz_file import tag_cbz_file
 import logging
@@ -86,6 +85,18 @@ def retag_series(entry: tuple, force: bool = False, dry_run: bool = False):
             logging.info(f"  Annuals — tagged: {tagged}, skipped: {skipped}")
 
 
+def load_series_from_db() -> list[tuple]:
+    """Load all enabled series from the DB and return as scraper tuples."""
+    from web.database import SessionLocal
+    from web.models import Series
+    db = SessionLocal()
+    try:
+        rows = db.query(Series).filter(Series.enabled == True).order_by(Series.publisher, Series.series_name).all()
+        return [s.to_scraper_tuple() for s in rows]
+    finally:
+        db.close()
+
+
 def main():
     parser = argparse.ArgumentParser(description="Retag comics with Metron/ComicVine metadata")
     parser.add_argument("--force", action="store_true", help="Retag even if metadata already exists")
@@ -93,12 +104,12 @@ def main():
     parser.add_argument("--series", metavar="NAME", help="Only process series whose name contains NAME")
     args = parser.parse_args()
 
-    series_list = read_series_list(SERIES_FILE_PATH)
+    series_list = load_series_from_db()
 
     if args.series:
         series_list = [e for e in series_list if args.series.lower() in e[1].lower()]
         if not series_list:
-            logging.warning(f"No series matching '{args.series}' found in {SERIES_FILE_PATH}")
+            logging.warning(f"No series matching '{args.series}' found in DB")
             return
 
     for entry in series_list:

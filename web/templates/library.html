@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Library — Comics Scraper{% endblock %}
+{% block content %}
+
+<div class="d-flex align-items-center gap-3 mb-4">
+  <h4 class="fw-bold mb-0">Library</h4>
+</div>
+
+<!-- Scan status -->
+<div class="card mb-4">
+  <div class="card-header py-3 fw-semibold">Scan Status</div>
+  <div class="card-body py-3">
+    <div id="scan-status"
+         hx-get="/library/status"
+         hx-trigger="load, every 2s [document.querySelector('#scan-status .spinner-border') != null], refresh-scan-status from:body"
+         hx-swap="innerHTML">
+      {% include "partials/library_status.html" %}
+    </div>
+  </div>
+</div>
+
+<!-- Scan controls -->
+<div class="card">
+  <div class="card-header py-3 fw-semibold">Scan &amp; Retag</div>
+  <div class="card-body p-4">
+    <p class="text-muted small mb-3">
+      Scans all series folders and tags any CBZ/CBR files that are missing metadata.
+      Use <strong>Force retag</strong> to overwrite existing tags.
+    </p>
+    <form hx-post="/library/scan"
+          hx-target="#scan-status"
+          hx-swap="innerHTML"
+          class="d-flex align-items-center gap-3 flex-wrap">
+      <div class="form-check mb-0">
+        <input class="form-check-input" type="checkbox" name="force" value="true" id="force-check">
+        <label class="form-check-label fw-medium" for="force-check">Force retag (overwrite existing)</label>
+      </div>
+      <button type="submit" class="btn btn-primary"
+              {{ 'disabled' if status.running }}>
+        <i class="bi bi-arrow-repeat me-1"></i>Scan Library
+      </button>
+    </form>
+  </div>
+</div>
+
+{% endblock %}

@@ -74,13 +74,15 @@ class AppSetting(Base):
 class MonitoredIssue(Base):
     """Explicit issue-level monitoring. When any rows exist for a series,
     the scraper only downloads issues listed here (selective mode).
-    When no rows exist, all issues are downloaded (default mode)."""
+    When no rows exist, all issues are downloaded (default mode).
+    issue_type: 'regular' or 'annual' — prevents #1 regular and #1 annual from colliding."""
     __tablename__ = "monitored_issues"
-    __table_args__ = (UniqueConstraint("series_id", "issue_number", name="uq_monitored_issue"),)
+    __table_args__ = (UniqueConstraint("series_id", "issue_number", "issue_type", name="uq_monitored_issue"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     series_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
     issue_number: Mapped[str] = mapped_column(String, nullable=False)
+    issue_type: Mapped[str] = mapped_column(String, nullable=False, default="regular", server_default="regular")
 
 
 class DownloadJob(Base):

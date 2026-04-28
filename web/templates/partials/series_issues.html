@@ -1,4 +1,4 @@
-{% macro issue_table(issues, series, monitored_nums, has_monitoring, all_monitored) %}
+{% macro issue_table(issues, series, monitored_nums, has_monitoring, all_monitored, issue_type) %}
 <div class="table-responsive">
   <table class="table table-hover align-middle mb-0">
     <thead>
@@ -43,7 +43,7 @@
       <tr class="{{ '' if is_monitored else 'opacity-50' }}">
         <td class="ps-3">
           <button class="btn btn-link btn-sm p-0 {{ 'text-warning' if is_monitored else 'text-muted' }}"
-                  hx-post="/series/{{ series.id }}/issues/{{ issue.number }}/monitor"
+                  hx-post="/series/{{ series.id }}/issues/{{ issue.number }}/monitor?type={{ issue_type }}"
                   hx-target="this" hx-swap="outerHTML"
                   title="{{ 'Monitored' if is_monitored else 'Not monitored' }}">
             <i class="bi {{ 'bi-bookmark-fill' if is_monitored else 'bi-bookmark' }}"></i>
@@ -87,11 +87,11 @@
 
 {% if regular_issues or annual_issues %}
 
-{# all_monitored: default mode (no explicit entries) OR every issue is in monitored_nums #}
 {% set total_issues = (regular_issues | length) + (annual_issues | length) %}
-{% set all_monitored = not has_monitoring or (monitored_nums | length >= total_issues) %}
+{% set monitored_total = (monitored_regular | length) + (monitored_annual | length) %}
+{% set all_monitored = not has_monitoring or (monitored_total >= total_issues) %}
 
-{{ issue_table(regular_issues, s, monitored_nums, has_monitoring, all_monitored) }}
+{{ issue_table(regular_issues, s, monitored_regular, has_monitoring, all_monitored, 'regular') }}
 
 {% if annual_issues %}
 <div class="border-top d-flex align-items-center gap-2 px-4 py-2"
@@ -102,7 +102,7 @@
     {{ annual_issues | length }}
   </span>
 </div>
-{{ issue_table(annual_issues, s, monitored_nums, has_monitoring, all_monitored) }}
+{{ issue_table(annual_issues, s, monitored_annual, has_monitoring, all_monitored, 'annual') }}
 {% endif %}
 
 {% else %}
@@ -124,7 +124,7 @@
   </span>
   {% if has_monitoring %}
   <span class="badge ms-1" style="background:rgba(255,193,7,0.15);color:#ffc107;font-size:0.65rem;">
-    <i class="bi bi-bookmark-fill me-1"></i>Selective · {{ monitored_nums | length }} monitored
+    <i class="bi bi-bookmark-fill me-1"></i>Selective · {{ monitored_regular | length + monitored_annual | length }} monitored
   </span>
   {% endif %}
   <button class="btn btn-link btn-sm text-muted p-0 ms-auto"
