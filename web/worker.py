@@ -44,15 +44,20 @@ def _download_issue(series, issue_number: str) -> str:
         for link in soup.select("div.post-info h1.post-title a"):
             title = link.get_text(strip=True)
             norm = normalize_title(title)
-            m = re.search(r"#(\d+(?:\.\d+)?)", title)
-            if not m:
+            # Extract base title (everything before "#N (YYYY)") for exact match
+            base_m = re.match(r"^(.*?)\s*#[\d.]+.*?\(\d{4}\)", norm)
+            if not base_m:
+                continue
+            base_title = base_m.group(1).strip()
+            if base_title != normalized_series:
+                continue
+            num_m = re.search(r"#(\d+(?:\.\d+)?)", title)
+            if not num_m:
                 continue
             try:
-                found_num = str(int(float(m.group(1))))
+                found_num = str(int(float(num_m.group(1))))
             except ValueError:
-                found_num = m.group(1)
-            if normalized_series not in norm:
-                continue
+                found_num = num_m.group(1)
             if found_num != target_num:
                 continue
             return link["href"], title
