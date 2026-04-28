@@ -25,8 +25,15 @@ def has_metadata(cbz_path: str) -> bool:
 
 
 def _issue_number(filename: str) -> str | None:
+    # Prefer explicit "#NNN" format
     m = re.search(r"#(\d+)", filename)
-    return str(int(m.group(1))) if m else None
+    if m:
+        return str(int(m.group(1)))
+    # Fall back to "NNN (YYYY)" format: number immediately before a year in parens
+    m = re.search(r"(\d+)\s*\(\d{4}\)", filename)
+    if m:
+        return str(int(m.group(1)))
+    return None
 
 
 def retag_directory(entry: tuple, directory: str, force: bool = False, dry_run: bool = False) -> tuple[int, int]:
