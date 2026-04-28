@@ -8,14 +8,25 @@ CURRENT_DATE = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 LOG_FOLDER = f"logs/"
 LOG_FILENAME = f"comic_downloader_{CURRENT_DATE}.log"
 os.makedirs(LOG_FOLDER, exist_ok=True)
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler(os.path.join(LOG_FOLDER, LOG_FILENAME)),
-        logging.StreamHandler()  # This will output to the console as well
-    ]
-)
+
+_LOG_FMT = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+_root = logging.getLogger()
+_root.setLevel(logging.INFO)
+
+# Add handlers explicitly so they work even when uvicorn has already
+# configured the root logger (logging.basicConfig is a no-op in that case).
+if not any(isinstance(h, logging.FileHandler) for h in _root.handlers):
+    _fh = logging.FileHandler(os.path.join(LOG_FOLDER, LOG_FILENAME))
+    _fh.setFormatter(_LOG_FMT)
+    _root.addHandler(_fh)
+
+if not any(
+    isinstance(h, logging.StreamHandler) and not isinstance(h, logging.FileHandler)
+    for h in _root.handlers
+):
+    _sh = logging.StreamHandler()
+    _sh.setFormatter(_LOG_FMT)
+    _root.addHandler(_sh)
 
 BASE_SEARCH_URL = "https://getcomics.org/page/{}/?s="
 HEADERS = {
