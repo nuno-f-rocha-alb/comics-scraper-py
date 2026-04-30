@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Downloads — Comics Scraper{% endblock %}
+{% block mobile_title %}Downloads{% endblock %}
 {% block content %}
 
 <div class="d-flex align-items-center gap-3 mb-4">
@@ -25,15 +26,15 @@
     </span>
 
     <!-- Filter by source -->
-    <div class="ms-3 d-flex gap-1" style="font-size:0.75rem;">
-      <button class="btn btn-sm btn-outline-secondary py-0 px-2 active" id="filter-all"
-              onclick="filterJobs('all', this)">All</button>
-      <button class="btn btn-sm btn-outline-secondary py-0 px-2" id="filter-scraper"
-              onclick="filterJobs('scraper', this)">Scraper</button>
-      <button class="btn btn-sm btn-outline-secondary py-0 px-2" id="filter-manual"
-              onclick="filterJobs('manual', this)">Manual</button>
-      <button class="btn btn-sm btn-outline-secondary py-0 px-2" id="filter-failed"
-              onclick="filterJobs('failed', this)">Failed</button>
+    <div class="ms-3 d-flex gap-1" role="group" aria-label="Filter downloads">
+      <button class="btn btn-sm btn-outline-secondary active" id="filter-all"
+              onclick="filterJobs('all', this)" style="font-size:0.75rem; padding:0.15rem 0.6rem;">All</button>
+      <button class="btn btn-sm btn-outline-secondary" id="filter-scraper"
+              onclick="filterJobs('scraper', this)" style="font-size:0.75rem; padding:0.15rem 0.6rem;">Scraper</button>
+      <button class="btn btn-sm btn-outline-secondary" id="filter-manual"
+              onclick="filterJobs('manual', this)" style="font-size:0.75rem; padding:0.15rem 0.6rem;">Manual</button>
+      <button class="btn btn-sm btn-outline-secondary" id="filter-failed"
+              onclick="filterJobs('failed', this)" style="font-size:0.75rem; padding:0.15rem 0.6rem;">Failed</button>
     </div>
 
     {% if jobs %}

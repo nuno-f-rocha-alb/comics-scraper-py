@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Series — Comics Scraper{% endblock %}
+{% block mobile_title %}Series{% endblock %}
 {% block content %}
 
 <div class="d-flex justify-content-between align-items-center mb-3">
@@ -46,23 +47,23 @@
       <i class="bi bi-search text-muted" style="font-size:0.8rem;"></i>
     </span>
     <input id="filter-search" type="search" class="form-control form-control-sm border-0 bg-body-tertiary"
-           placeholder="Search series…" autocomplete="off">
+           placeholder="Search series…" autocomplete="off" aria-label="Search series">
   </div>
 
-  <select id="filter-publisher" class="form-select form-select-sm border-0 bg-body-tertiary" style="max-width:170px;">
+  <select id="filter-publisher" class="form-select form-select-sm border-0 bg-body-tertiary" style="max-width:170px;" aria-label="Filter by publisher">
     <option value="">All publishers</option>
     {% for pub in publishers %}
     <option value="{{ pub }}">{{ pub }}</option>
     {% endfor %}
   </select>
 
-  <select id="filter-status" class="form-select form-select-sm border-0 bg-body-tertiary" style="max-width:130px;">
+  <select id="filter-status" class="form-select form-select-sm border-0 bg-body-tertiary" style="max-width:130px;" aria-label="Filter by status">
     <option value="">All status</option>
     <option value="monitored">Monitored</option>
     <option value="paused">Paused</option>
   </select>
 
-  <select id="filter-sort" class="form-select form-select-sm border-0 bg-body-tertiary" style="max-width:170px;">
+  <select id="filter-sort" class="form-select form-select-sm border-0 bg-body-tertiary" style="max-width:170px;" aria-label="Sort series">
     <option value="name-asc">Name A → Z</option>
     <option value="name-desc">Name Z → A</option>
     <option value="publisher-asc">Publisher A → Z</option>
@@ -72,7 +73,7 @@
     <option value="progress-asc">Progress least first</option>
   </select>
 
-  <button id="filter-reset" class="btn btn-sm btn-link text-muted p-0 ms-1" style="font-size:0.8rem; display:none;">
+  <button id="filter-reset" class="btn btn-sm btn-link text-muted p-0 ms-1" style="font-size:0.8rem; display:none;" aria-label="Reset filters">
     <i class="bi bi-x-circle me-1"></i>Reset
   </button>
 </div>

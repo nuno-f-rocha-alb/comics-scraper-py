@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}{{ s.series_name }} — Comics Scraper{% endblock %}
+{% block mobile_title %}{{ s.series_name }}{% endblock %}
 {% block content %}
 
 <nav aria-label="breadcrumb" class="mb-3">
@@ -18,7 +19,7 @@
       <div style="flex-shrink:0; width:160px;">
         {% if s.cover_image_url %}
         <img src="{{ s.cover_image_url }}" alt="{{ s.series_name }}"
-             class="w-100 rounded-3" style="aspect-ratio:2/3; object-fit:cover;">
+             class="w-100 rounded-3" style="aspect-ratio:2/3; object-fit:cover;" loading="lazy">
         {% else %}
         <div class="rounded-3 d-flex align-items-center justify-content-center"
              style="aspect-ratio:2/3; background:rgba(91,141,217,0.1); color:#5b8dd9; font-size:3rem;">
@@ -95,6 +96,7 @@
                   title="Preview and apply file renames to standard format">
             <i class="bi bi-files me-1"></i>Preview Rename
           </button>
+          <span class="ms-auto"></span>
           <button class="btn btn-sm btn-outline-danger"
                   hx-delete="/series/{{ s.id }}"
                   hx-confirm="Delete {{ s.series_name }}? This cannot be undone."
