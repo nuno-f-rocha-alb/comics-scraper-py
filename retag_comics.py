@@ -109,12 +109,12 @@ def retag_series(entry: tuple, force: bool = False, dry_run: bool = False):
 
 
 def load_series_from_db() -> list[tuple]:
-    """Load all enabled series from the DB and return as scraper tuples."""
+    """Load ALL series from the DB (enabled and paused) for library scanning."""
     from web.database import SessionLocal
     from web.models import Series
     db = SessionLocal()
     try:
-        rows = db.query(Series).filter(Series.enabled == True).order_by(Series.publisher, Series.series_name).all()
+        rows = db.query(Series).order_by(Series.publisher, Series.series_name).all()
         return [s.to_scraper_tuple() for s in rows]
     finally:
         db.close()
