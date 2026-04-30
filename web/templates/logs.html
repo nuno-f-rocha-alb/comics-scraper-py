@@ -1,0 +1,220 @@
+{% extends "base.html" %}
+{% block title %}Logs — Comics Scraper{% endblock %}
+{% block mobile_title %}Logs{% endblock %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <div>
+    <h4 class="fw-bold mb-0">Logs</h4>
+    <p class="text-muted small mb-0">Real-time log viewer</p>
+  </div>
+</div>
+
+<div class="row g-3" style="min-height: calc(100vh - 9rem);">
+
+  <!-- ── Left panel: files + settings ──────────────────────────────── -->
+  <div class="col-lg-4 col-xl-3 d-flex flex-column gap-3">
+
+    <!-- File selector -->
+    <div class="card">
+      <div class="card-header py-2 fw-semibold small">Log Files</div>
+      <div class="card-body p-3">
+        <select id="log-file-select"
+                class="form-select form-select-sm mb-2"
+                onchange="switchLog(this.value)"
+                aria-label="Select log file">
+          {% for f in files %}
+          <option value="{{ f.name }}" {% if f.name == current_name %}selected{% endif %}>
+            {{ f.name }}
+          </option>
+          {% else %}
+          <option disabled>No log files found</option>
+          {% endfor %}
+        </select>
+        <div class="d-flex gap-2 align-items-center">
+          <label class="form-label small mb-0 text-muted">Lines</label>
+          <select id="log-lines-select"
+                  class="form-select form-select-sm"
+                  style="max-width: 90px;"
+                  onchange="updateStream()"
+                  aria-label="Number of lines">
+            <option value="100">100</option>
+            <option value="200" selected>200</option>
+            <option value="500">500</option>
+            <option value="1000">1000</option>
+          </select>
+          <select id="log-level-select"
+                  class="form-select form-select-sm"
+                  onchange="updateStream()"
+                  aria-label="Filter by level">
+            <option value="">All levels</option>
+            <option value="ERROR">ERROR</option>
+            <option value="WARNING">WARNING</option>
+            <option value="INFO">INFO</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <!-- File list -->
+    <div class="card flex-grow-1">
+      <div class="card-header py-2 d-flex align-items-center">
+        <span class="fw-semibold small">All Files</span>
+        <span class="badge ms-2" style="background:rgba(91,141,217,0.15);color:#5b8dd9;font-size:0.62rem;">
+          {{ files | length }}
+        </span>
+      </div>
+      <div id="log-files-list">
+        {% include "partials/log_files.html" %}
+      </div>
+    </div>
+
+    <!-- Retention settings -->
+    <div class="card">
+      <div class="card-header py-2 fw-semibold small">Retention</div>
+      <div class="card-body p-3">
+        <form hx-post="/logs/settings"
+              hx-target="#toast-stack"
+              hx-swap="none"
+              class="d-flex align-items-center gap-2 flex-wrap">
+          <label class="small text-muted mb-0">Keep</label>
+          <input type="number" name="log_retention_days"
+                 class="form-control form-control-sm"
+                 style="max-width: 70px;"
+                 min="1" max="365"
+                 value="{{ retention_days }}">
+          <label class="small text-muted mb-0">days</label>
+          <button type="submit" class="btn btn-sm btn-outline-secondary ms-auto">Save</button>
+        </form>
+        <div class="mt-2">
+          <button class="btn btn-sm btn-outline-danger w-100"
+                  hx-post="/logs/cleanup"
+                  hx-target="#log-files-list"
+                  hx-swap="innerHTML"
+                  hx-confirm="Delete all log files older than {{ retention_days }} days?">
+            <i class="bi bi-trash me-1"></i>Clean old logs
+          </button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ── Right panel: terminal ──────────────────────────────────────── -->
+  <div class="col-lg-8 col-xl-9 d-flex flex-column" style="min-height: 600px;">
+    <div class="card flex-grow-1 d-flex flex-column overflow-hidden">
+
+      <!-- Toolbar -->
+      <div class="log-toolbar">
+        <span class="badge" style="background:rgba(13,210,80,0.15);color:#22c55e;font-size:0.65rem;">
+          <span class="log-status-dot" id="stream-dot"></span>
+          LIVE
+        </span>
+        <span class="text-muted small" id="stream-filename">{{ current_name }}</span>
+        <span class="ms-auto d-flex gap-2 align-items-center">
+          <span class="text-muted small" id="stream-count"></span>
+          <span class="text-muted small" id="stream-time"></span>
+          <button id="btn-autoscroll"
+                  class="btn btn-sm btn-outline-secondary py-0 px-2 active"
+                  style="font-size:0.72rem;"
+                  onclick="toggleAutoScroll(this)"
+                  title="Toggle auto-scroll">
+            <i class="bi bi-arrow-down-circle me-1"></i>Auto-scroll
+          </button>
+          <button id="btn-pause"
+                  class="btn btn-sm btn-outline-secondary py-0 px-2"
+                  style="font-size:0.72rem;"
+                  onclick="togglePause(this)"
+                  title="Pause live updates">
+            <i class="bi bi-pause-fill me-1"></i>Pause
+          </button>
+        </span>
+      </div>
+
+      <!-- Terminal output -->
+      <div id="log-terminal-wrap" class="flex-grow-1 overflow-hidden" style="min-height:0;">
+        <div id="log-terminal"
+             class="log-terminal h-100"
+             hx-get="/logs/stream?filename={{ current_name }}&lines={{ lines_default }}"
+             hx-trigger="load, every 2s [!window._logPaused]"
+             hx-swap="innerHTML"
+             hx-on::after-request="onStreamUpdate()">
+          <span class="ll-muted">Loading…</span>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+</div>
+
+<!-- Toast stack (reused from base) -->
+<div id="toast-stack" class="toast-container position-fixed bottom-0 end-0 p-3" style="z-index:1100;"></div>
+
+<style>
+  .log-status-dot {
+    display: inline-block;
+    width: 6px; height: 6px;
+    background: #22c55e;
+    border-radius: 50%;
+    margin-right: 4px;
+    animation: pulse-dot 2s ease-in-out infinite;
+  }
+  @keyframes pulse-dot {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+  }
+  #btn-pause.active  { background: rgba(255,193,7,0.15); border-color: #ffc107; color: #ffc107; }
+  @media (prefers-reduced-motion: reduce) {
+    .log-status-dot { animation: none; }
+  }
+</style>
+
+<script>
+  window._logPaused    = false;
+  window._autoScroll   = true;
+
+  function onStreamUpdate() {
+    const term = document.getElementById('log-terminal');
+    const lines = term ? term.querySelectorAll('[data-line]') : [];
+    const countEl = document.getElementById('stream-count');
+    const timeEl  = document.getElementById('stream-time');
+    if (countEl) countEl.textContent = lines.length + ' lines';
+    if (timeEl)  timeEl.textContent  = new Date().toLocaleTimeString();
+    if (window._autoScroll && term) term.scrollTop = term.scrollHeight;
+  }
+
+  function toggleAutoScroll(btn) {
+    window._autoScroll = !window._autoScroll;
+    btn.classList.toggle('active', window._autoScroll);
+  }
+
+  function togglePause(btn) {
+    window._logPaused = !window._logPaused;
+    btn.classList.toggle('active', window._logPaused);
+    btn.innerHTML = window._logPaused
+      ? '<i class="bi bi-play-fill me-1"></i>Resume'
+      : '<i class="bi bi-pause-fill me-1"></i>Pause';
+    const dot = document.getElementById('stream-dot');
+    if (dot) dot.style.background = window._logPaused ? '#ffc107' : '#22c55e';
+  }
+
+  function switchLog(filename) {
+    document.getElementById('stream-filename').textContent = filename;
+    updateStream(filename);
+  }
+
+  function updateStream(filename) {
+    const f    = filename || document.getElementById('log-file-select').value;
+    const n    = document.getElementById('log-lines-select').value;
+    const lvl  = document.getElementById('log-level-select').value;
+    const term = document.getElementById('log-terminal');
+    if (!term) return;
+    const url = `/logs/stream?filename=${encodeURIComponent(f)}&lines=${n}&level=${lvl}`;
+    term.setAttribute('hx-get', url);
+    htmx.process(term);
+    htmx.trigger(term, 'load');
+  }
+</script>
+
+{% endblock %}

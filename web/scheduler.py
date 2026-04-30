@@ -118,9 +118,52 @@ def update_schedule(mode: str, value: str) -> None:
 
 # ── Lifecycle ─────────────────────────────────────────────────────────────────
 
+def _auto_cleanup_logs() -> None:
+    """Delete log files older than log_retention_days (from AppSetting, default 7)."""
+    try:
+        import os as _os
+        import time as _time
+        from web.database import SessionLocal
+        from web.models import AppSetting
+
+        log_dir = _os.getenv("LOG_DIR", "logs")
+        if not _os.path.isdir(log_dir):
+            return
+
+        with SessionLocal() as db:
+            row = db.get(AppSetting, "log_retention_days")
+            retention_days = int(row.value) if row else 7
+
+        cutoff = _time.time() - retention_days * 86400
+        # Identify active log file to protect it
+        import logging as _logging
+        active = None
+        for h in _logging.getLogger().handlers:
+            if isinstance(h, _logging.FileHandler):
+                active = h.baseFilename
+                break
+
+        deleted = 0
+        for name in _os.listdir(log_dir):
+            if not name.endswith(".log"):
+                continue
+            path = _os.path.join(log_dir, name)
+            if active and _os.path.normpath(path) == _os.path.normpath(active):
+                continue
+            if _os.stat(path).st_mtime < cutoff:
+                _os.remove(path)
+                deleted += 1
+
+        if deleted:
+            log.info("Auto-cleanup: removed %d log file(s) older than %d days.", deleted, retention_days)
+    except Exception as exc:
+        log.warning("Log auto-cleanup failed: %s", exc)
+
+
 def start_scheduler() -> None:
     from web.database import init_db
     init_db()
+    _auto_cleanup_logs()
 
     mode, value = load_config()
     trigger = make_trigger(mode, value)

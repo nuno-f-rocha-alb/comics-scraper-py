@@ -1,0 +1,31 @@
+{% if files %}
+<div class="list-group list-group-flush">
+  {% for f in files %}
+  <div class="list-group-item list-group-item-action px-3 py-2 d-flex align-items-center gap-2"
+       style="font-size:0.78rem; cursor:pointer;"
+       onclick="switchLog('{{ f.name }}'); document.getElementById('log-file-select').value='{{ f.name }}';">
+    <i class="bi bi-file-text text-muted" style="font-size:0.85rem; flex-shrink:0;"></i>
+    <div class="flex-grow-1 overflow-hidden">
+      <div class="text-truncate fw-medium" title="{{ f.name }}">{{ f.name }}</div>
+      <div class="text-muted" style="font-size:0.68rem;">
+        {{ (f.size / 1024) | round(1) }} KB
+      </div>
+    </div>
+    <button class="btn btn-link btn-sm p-0 text-muted flex-shrink-0"
+            hx-delete="/logs/{{ f.name }}"
+            hx-target="#log-files-list"
+            hx-swap="innerHTML"
+            hx-confirm="Delete {{ f.name }}?"
+            onclick="event.stopPropagation();"
+            title="Delete">
+      <i class="bi bi-x-lg" style="font-size:0.75rem;"></i>
+    </button>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="text-center text-muted py-4 small">
+  <i class="bi bi-inbox d-block mb-1 fs-4 opacity-50"></i>
+  No log files.
+</div>
+{% endif %}

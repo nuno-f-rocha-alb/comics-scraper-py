@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 import re
@@ -1482,3 +1483,195 @@ async def rename_apply(request: Request, series_id: int, db: Session = Depends(g
     if errors:
         msg += f", {errors} erro(s)"
     return rename_preview(request, series_id, msg=msg, db=db)
+
+
+# ── Log viewer ─────────────────────────────────────────────────────────────────
+
+LOG_DIR = os.getenv("LOG_DIR", "logs")
+_LOG_LINES_DEFAULT = 200
+
+
+def _log_files() -> list[dict]:
+    """Return log files sorted newest first with size info."""
+    if not os.path.isdir(LOG_DIR):
+        return []
+    files = []
+    for name in os.listdir(LOG_DIR):
+        if not name.endswith(".log"):
+            continue
+        path = os.path.join(LOG_DIR, name)
+        stat = os.stat(path)
+        files.append({
+            "name": name,
+            "path": path,
+            "size": stat.st_size,
+            "mtime": stat.st_mtime,
+        })
+    files.sort(key=lambda f: f["mtime"], reverse=True)
+    return files
+
+
+def _current_log_path() -> str | None:
+    """Return the path of the active FileHandler log, or newest file."""
+    import logging as _logging
+    for h in _logging.getLogger().handlers:
+        if isinstance(h, _logging.FileHandler):
+            return h.baseFilename
+    files = _log_files()
+    return files[0]["path"] if files else None
+
+
+def _read_tail(path: str, n: int) -> list[str]:
+    """Read last n lines of a file efficiently."""
+    try:
+        with open(path, "rb") as f:
+            f.seek(0, 2)
+            size = f.tell()
+            if size == 0:
+                return []
+            buf = bytearray()
+            pos = size
+            lines_found = 0
+            chunk = 8192
+            while pos > 0 and lines_found < n + 1:
+                read_size = min(chunk, pos)
+                pos -= read_size
+                f.seek(pos)
+                data = f.read(read_size)
+                buf = bytearray(data) + buf
+                lines_found = buf.count(b"\n")
+            text = buf.decode("utf-8", errors="replace")
+            return text.splitlines()[-n:]
+    except OSError:
+        return []
+
+
+def _cleanup_old_logs(retention_days: int) -> int:
+    """Delete log files older than retention_days. Returns count deleted."""
+    import time
+    cutoff = time.time() - retention_days * 86400
+    deleted = 0
+    active = _current_log_path()
+    for f in _log_files():
+        if f["mtime"] < cutoff and f["path"] != active:
+            try:
+                os.remove(f["path"])
+                deleted += 1
+            except OSError:
+                pass
+    return deleted
+
+
+def _get_log_setting(db, key: str, default: str) -> str:
+    row = db.get(AppSetting, key)
+    return row.value if row else default
+
+
+def _set_log_setting(db, key: str, value: str) -> None:
+    row = db.get(AppSetting, key)
+    if row:
+        row.value = value
+    else:
+        db.add(AppSetting(key=key, value=value))
+    db.commit()
+
+
+@app.get("/logs", response_class=HTMLResponse)
+def logs_page(request: Request, db: Session = Depends(get_db)):
+    files = _log_files()
+    retention = int(_get_log_setting(db, "log_retention_days", "7"))
+    current = _current_log_path()
+    current_name = os.path.basename(current) if current else (files[0]["name"] if files else "")
+    return templates.TemplateResponse(
+        "logs.html",
+        {
+            "request": request,
+            "files": files,
+            "retention_days": retention,
+            "current_name": current_name,
+            "lines_default": _LOG_LINES_DEFAULT,
+        },
+    )
+
+
+@app.get("/logs/stream", response_class=HTMLResponse)
+def logs_stream(
+    request: Request,
+    filename: str = "",
+    lines: int = _LOG_LINES_DEFAULT,
+    level: str = "",
+):
+    if filename:
+        safe = os.path.basename(filename)
+        path = os.path.join(LOG_DIR, safe)
+    else:
+        path = _current_log_path()
+
+    if not path or not os.path.isfile(path):
+        return templates.TemplateResponse(
+            "partials/log_stream.html",
+            {"request": request, "lines": [], "filename": filename},
+        )
+
+    raw = _read_tail(path, lines)
+    if level:
+        raw = [l for l in raw if f" - {level.upper()} - " in l]
+
+    return templates.TemplateResponse(
+        "partials/log_stream.html",
+        {"request": request, "lines": raw, "filename": os.path.basename(path)},
+    )
+
+
+@app.get("/logs/files", response_class=HTMLResponse)
+def logs_files_partial(request: Request):
+    return templates.TemplateResponse(
+        "partials/log_files.html",
+        {"request": request, "files": _log_files()},
+    )
+
+
+@app.delete("/logs/{filename}", response_class=HTMLResponse)
+def log_delete(filename: str, request: Request):
+    safe = os.path.basename(filename)
+    path = os.path.join(LOG_DIR, safe)
+    active = _current_log_path()
+    if os.path.normpath(path) == os.path.normpath(active or ""):
+        return templates.TemplateResponse(
+            "partials/toast.html",
+            {"request": request, "kind": "error", "message": "Cannot delete the active log file."},
+        )
+    try:
+        os.remove(path)
+    except OSError as exc:
+        return templates.TemplateResponse(
+            "partials/toast.html",
+            {"request": request, "kind": "error", "message": str(exc)},
+        )
+    return templates.TemplateResponse(
+        "partials/log_files.html",
+        {"request": request, "files": _log_files()},
+        headers={"HX-Trigger": "log-file-deleted"},
+    )
+
+
+@app.post("/logs/cleanup", response_class=HTMLResponse)
+def log_cleanup(request: Request, db: Session = Depends(get_db)):
+    retention = int(_get_log_setting(db, "log_retention_days", "7"))
+    deleted = _cleanup_old_logs(retention)
+    return templates.TemplateResponse(
+        "partials/log_files.html",
+        {"request": request, "files": _log_files()},
+        headers={"HX-Trigger": json.dumps({"show-toast": {"kind": "success", "message": f"{deleted} log(s) deleted."}})},
+    )
+
+
+@app.post("/logs/settings", response_class=HTMLResponse)
+async def log_settings_save(request: Request, db: Session = Depends(get_db)):
+    form = await request.form()
+    days = max(1, int(form.get("log_retention_days") or 7))
+    _set_log_setting(db, "log_retention_days", str(days))
+    return templates.TemplateResponse(
+        "partials/toast.html",
+        {"request": request, "kind": "success", "message": f"Retention set to {days} days."},
+    )

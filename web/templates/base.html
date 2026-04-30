@@ -183,6 +183,38 @@
     .series-card-progress .progress-label { font-size: 0.68rem; color: #6c757d; margin-top: 0.25rem; }
     [data-bs-theme="dark"] .series-card-progress .progress-label { color: #8a9bb5; }
 
+    /* ── Log viewer terminal ─────────────────────────────────────────────── */
+    .log-terminal {
+      background: #0d1117;
+      border-radius: 10px;
+      font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+      font-size: 0.78rem;
+      line-height: 1.55;
+      color: #c9d1d9;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+      padding: 1rem 1.25rem;
+      flex: 1 1 0;
+      min-height: 0;
+    }
+    .log-terminal .ll-error   { color: #ff7b72; }
+    .log-terminal .ll-warning { color: #e3b341; }
+    .log-terminal .ll-info    { color: #c9d1d9; }
+    .log-terminal .ll-dl      { color: #79c0ff; }
+    .log-terminal .ll-meta    { color: #7ee787; }
+    .log-terminal .ll-muted   { color: #484f58; }
+
+    .log-toolbar {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+      padding: 0.6rem 1rem;
+      border-bottom: 1px solid rgba(0,0,0,0.08);
+    }
+    [data-bs-theme="dark"] .log-toolbar { border-bottom-color: rgba(255,255,255,0.08); }
+
     /* ── Reduced motion ──────────────────────────────────────────────────── */
     @media (prefers-reduced-motion: reduce) {
       .series-card { transition: box-shadow 0.15s; }
@@ -365,6 +397,12 @@
         <a href="/library"
            class="nav-link {% if path.startswith('/library') %}active{% endif %}">
           <i class="bi bi-folder2-open"></i> Library
+        </a>
+      </li>
+      <li>
+        <a href="/logs"
+           class="nav-link {% if path.startswith('/logs') %}active{% endif %}">
+          <i class="bi bi-terminal"></i> Logs
         </a>
       </li>
     </ul>

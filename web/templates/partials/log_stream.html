@@ -1,0 +1,12 @@
+{% if lines %}
+{% for line in lines %}
+{% if ' - ERROR - ' in line %}<span data-line class="ll-error">{{ line }}</span>
+{% elif ' - WARNING - ' in line %}<span data-line class="ll-warning">{{ line }}</span>
+{% elif 'Tagged ' in line or 'Writing metadata' in line or 'Downloading' in line %}<span data-line class="ll-meta">{{ line }}</span>
+{% elif 'download' in line.lower() or 'cbz' in line.lower() %}<span data-line class="ll-dl">{{ line }}</span>
+{% else %}<span data-line class="ll-info">{{ line }}</span>
+{% endif %}
+{% endfor %}
+{% else %}
+<span class="ll-muted">{% if filename %}No entries yet in {{ filename }}.{% else %}No log file found.{% endif %}</span>
+{% endif %}
