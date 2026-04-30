@@ -1,8 +1,11 @@
+import logging
 import os
 import re
 from contextlib import asynccontextmanager
 from datetime import date, datetime, timezone
 from urllib.parse import quote
+
+log = logging.getLogger(__name__)
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Query, Request, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -189,48 +192,79 @@ def _get_or_fetch_metron_issues(
 
     raw = _fetch_metron_issues(metron_series_id)
 
-    # The list endpoint does not return story titles — only the detail endpoint does.
-    # Fetch individual issue details for every cache population (initial + force refresh).
+    # Load existing cache entries keyed by metron_id to preserve already-fetched titles.
+    existing_by_id: dict = {
+        row.metron_id: row
+        for row in db.query(MetronIssueCache)
+        .filter(MetronIssueCache.series_id == metron_series_id)
+        .all()
+    }
+
     from config import METRON_BASE_URL
     from metadata.metron_client import get as metron_get
-    for issue in raw:
-        mid = issue.get("id")
-        if not mid:
-            continue
-        existing = issue.get("name")
-        if isinstance(existing, list) and existing:
-            continue  # list endpoint already provided a title
-        try:
-            detail = metron_get(f"{METRON_BASE_URL}/issue/{mid}/").json()
-            names = detail.get("name")
-            if isinstance(names, list) and names:
-                issue["name"] = names
-        except Exception:
-            pass
-
-    db.query(MetronIssueCache).filter(
-        MetronIssueCache.series_id == metron_series_id
-    ).delete()
-
     now = datetime.now(timezone.utc)
+    seen_ids: set = set()
+
     for issue in raw:
         mid = issue.get("id")
         if not mid:
             continue
+        seen_ids.add(mid)
+
+        cached_row = existing_by_id.get(mid)
+        cached_name = cached_row.name if cached_row else None
+
+        # Only call the detail endpoint for issues without a stored title.
+        if not cached_name:
+            api_name = issue.get("name")
+            if not (isinstance(api_name, list) and api_name):
+                try:
+                    detail = metron_get(f"{METRON_BASE_URL}/issue/{mid}/").json()
+                    names = detail.get("name")
+                    if isinstance(names, list) and names:
+                        issue["name"] = names
+                except Exception as exc:
+                    log.warning("Could not fetch detail for issue %s: %s", mid, exc)
+
         img_raw = issue.get("image") or ""
         img = img_raw if isinstance(img_raw, str) else (img_raw.get("medium") or "")
         _name = issue.get("name")
-        title = ", ".join(_name) if isinstance(_name, list) else str(_name or "")
-        db.add(MetronIssueCache(
-            metron_id=mid,
-            series_id=metron_series_id,
-            number=str(issue.get("number", "")),
-            name=title or None,
-            cover_date=str(issue.get("cover_date") or "")[:10] or None,
-            store_date=str(issue.get("store_date") or "")[:10] or None,
-            image_url=img or None,
-            cached_at=now,
-        ))
+        if isinstance(_name, list) and _name:
+            title = ", ".join(_name)
+        else:
+            title = cached_name or ""
+
+        # Surface the resolved title on the raw dict so _build_issue_list picks it up
+        issue["issue_name"] = title
+
+        if cached_row:
+            cached_row.number = str(issue.get("number", ""))
+            cached_row.name = title or None
+            cached_row.cover_date = str(issue.get("cover_date") or "")[:10] or None
+            cached_row.store_date = str(issue.get("store_date") or "")[:10] or None
+            if img:
+                cached_row.image_url = img
+            cached_row.cached_at = now
+        else:
+            db.add(MetronIssueCache(
+                metron_id=mid,
+                series_id=metron_series_id,
+                number=str(issue.get("number", "")),
+                name=title or None,
+                cover_date=str(issue.get("cover_date") or "")[:10] or None,
+                store_date=str(issue.get("store_date") or "")[:10] or None,
+                image_url=img or None,
+                cached_at=now,
+            ))
+
+    # Remove issues that no longer exist in Metron
+    stale_ids = set(existing_by_id.keys()) - seen_ids
+    if stale_ids:
+        db.query(MetronIssueCache).filter(
+            MetronIssueCache.series_id == metron_series_id,
+            MetronIssueCache.metron_id.in_(stale_ids),
+        ).delete(synchronize_session=False)
+
     db.commit()
     return raw
 
