@@ -96,6 +96,23 @@ def _local_annual_issue_numbers(s: Series) -> set[str]:
     return _extract_nums(os.path.join(_series_dir(s), "Annuals"))
 
 
+def _find_issue_file(s: Series, issue_num: str) -> str | None:
+    """Locate the local CBZ/CBR file for a given issue number, regular or annual."""
+    target = str(int(float(issue_num))) if issue_num else None
+    if not target:
+        return None
+    for folder in (_series_dir(s), os.path.join(_series_dir(s), "Annuals")):
+        if not os.path.isdir(folder):
+            continue
+        for name in os.listdir(folder):
+            if not name.lower().endswith((".cbz", ".cbr")):
+                continue
+            m = re.search(r"#(\d+(?:\.\d+)?)", name)
+            if m and str(int(float(m.group(1)))) == target:
+                return os.path.join(folder, name)
+    return None
+
+
 def _fetch_metron_issues(metron_series_id: int, block: bool = True) -> list[dict]:
     from config import METRON_BASE_URL
     from metadata.metron_client import get as metron_get
@@ -1224,6 +1241,169 @@ def series_scan(series_id: int, force: bool = Form(default=False), db: Session =
         '<button class="btn btn-sm btn-outline-secondary" disabled>'
         '<i class="bi bi-arrow-repeat me-1"></i>Scan started…'
         '</button>'
+    )
+
+
+# ── Local metadata editor ──────────────────────────────────────────────────────
+
+
+@app.get("/series/{series_id}/issues/{issue_num}/metadata", response_class=HTMLResponse)
+def issue_metadata_form(request: Request, series_id: int, issue_num: str, db: Session = Depends(get_db)):
+    from metadata.comicinfo_io import read_comicinfo, empty_fields
+
+    s = db.query(Series).filter(Series.id == series_id).first()
+    if not s:
+        raise HTTPException(status_code=404)
+
+    cbz = _find_issue_file(s, issue_num)
+    if not cbz:
+        return HTMLResponse(
+            '<div class="alert alert-warning m-3">Local file not found for this issue.</div>'
+        )
+
+    try:
+        fields = read_comicinfo(cbz)
+    except Exception as exc:
+        log.error("Failed to read ComicInfo.xml from %s: %s", cbz, exc)
+        fields = empty_fields()
+
+    return templates.TemplateResponse(
+        "partials/issue_metadata_form.html",
+        {
+            "request": request,
+            "s": s,
+            "issue_num": issue_num,
+            "fields": fields,
+            "filename": os.path.basename(cbz),
+            "from_metron": False,
+        },
+    )
+
+
+@app.get("/series/{series_id}/issues/{issue_num}/metadata/from-metron", response_class=HTMLResponse)
+def issue_metadata_from_metron(request: Request, series_id: int, issue_num: str, db: Session = Depends(get_db)):
+    from metadata.comicinfo_io import empty_fields
+    from metadata.get_comic_metadata import get_comic_metadata
+
+    s = db.query(Series).filter(Series.id == series_id).first()
+    if not s:
+        raise HTTPException(status_code=404)
+
+    cbz = _find_issue_file(s, issue_num)
+    fields = empty_fields()
+
+    try:
+        entry = s.to_scraper_tuple()
+        meta = get_comic_metadata(entry, issue_num)
+        if meta:
+            fields["Series"] = str(meta.get("series_name") or s.series_name or "")
+            fields["Number"] = str(meta.get("issue_number") or issue_num)
+            fields["Title"] = str(meta.get("title") or "")
+            fields["Publisher"] = str(meta.get("publisher") or s.publisher or "")
+            fields["Summary"] = str(meta.get("description") or "")
+            fields["PageCount"] = str(meta.get("page_count") or "")
+            store_date = meta.get("store_date") or ""
+            if len(store_date) >= 7:
+                fields["Year"] = store_date[:4]
+                fields["Month"] = str(int(store_date[5:7]))
+            for role in ("Writer", "Penciller", "Inker", "Colorist", "Letterer", "CoverArtist"):
+                key = role.lower() if role != "CoverArtist" else "cover_artist"
+                v = meta.get(key) or meta.get(role) or ""
+                if isinstance(v, list):
+                    v = ", ".join(str(x) for x in v)
+                fields[role] = str(v)
+    except Exception as exc:
+        log.error("Failed to fetch from Metron: %s", exc)
+
+    return templates.TemplateResponse(
+        "partials/issue_metadata_form.html",
+        {
+            "request": request,
+            "s": s,
+            "issue_num": issue_num,
+            "fields": fields,
+            "filename": os.path.basename(cbz) if cbz else "",
+            "from_metron": True,
+        },
+    )
+
+
+@app.post("/series/{series_id}/issues/{issue_num}/metadata", response_class=HTMLResponse)
+async def issue_metadata_save(request: Request, series_id: int, issue_num: str, db: Session = Depends(get_db)):
+    from metadata.comicinfo_io import write_comicinfo, EDITOR_FIELDS
+
+    s = db.query(Series).filter(Series.id == series_id).first()
+    if not s:
+        raise HTTPException(status_code=404)
+
+    cbz = _find_issue_file(s, issue_num)
+    if not cbz:
+        return templates.TemplateResponse(
+            "partials/toast.html",
+            {"request": request, "kind": "error", "message": "Local file not found."},
+        )
+
+    form = await request.form()
+    fields = {k: (form.get(k) or "").strip() for k in EDITOR_FIELDS}
+
+    try:
+        ok = write_comicinfo(cbz, fields)
+    except Exception as exc:
+        log.error("Failed to write ComicInfo.xml to %s: %s", cbz, exc)
+        return templates.TemplateResponse(
+            "partials/toast.html",
+            {"request": request, "kind": "error", "message": f"Save failed: {exc}"},
+        )
+
+    return templates.TemplateResponse(
+        "partials/toast.html",
+        {
+            "request": request,
+            "kind": "success" if ok else "error",
+            "message": "Metadata saved." if ok else "Save returned failure.",
+        },
+        headers={"HX-Trigger": "refresh-issues"} if ok else None,
+    )
+
+
+@app.get("/series/{series_id}/series-xml", response_class=HTMLResponse)
+def series_xml_form(request: Request, series_id: int, db: Session = Depends(get_db)):
+    from metadata.series_xml import read_series_xml
+
+    s = db.query(Series).filter(Series.id == series_id).first()
+    if not s:
+        raise HTTPException(status_code=404)
+
+    fields = read_series_xml(_series_dir(s))
+    return templates.TemplateResponse(
+        "partials/series_xml_form.html",
+        {"request": request, "s": s, "fields": fields},
+    )
+
+
+@app.post("/series/{series_id}/series-xml", response_class=HTMLResponse)
+async def series_xml_save(request: Request, series_id: int, db: Session = Depends(get_db)):
+    from metadata.series_xml import FIELDS, write_series_xml
+
+    s = db.query(Series).filter(Series.id == series_id).first()
+    if not s:
+        raise HTTPException(status_code=404)
+
+    form = await request.form()
+    fields = {k: (form.get(k) or "").strip() for k in FIELDS}
+
+    try:
+        write_series_xml(_series_dir(s), fields)
+    except Exception as exc:
+        log.error("Failed to write series.xml: %s", exc)
+        return templates.TemplateResponse(
+            "partials/toast.html",
+            {"request": request, "kind": "error", "message": f"Save failed: {exc}"},
+        )
+
+    return templates.TemplateResponse(
+        "partials/toast.html",
+        {"request": request, "kind": "success", "message": "Series notes saved."},
     )
 
 

@@ -1,0 +1,27 @@
+{# Out-of-band toast — auto-appended to #toast-stack and auto-dismissed by Bootstrap #}
+<div id="toast-stack" hx-swap-oob="beforeend">
+  <div class="toast align-items-center border-0 mb-2 cs-toast cs-toast-{{ kind }}"
+       role="alert" aria-live="polite" aria-atomic="true"
+       data-bs-autohide="true" data-bs-delay="3500">
+    <div class="d-flex">
+      <div class="toast-body d-flex align-items-center gap-2">
+        {% if kind == 'success' %}
+        <i class="bi bi-check-circle-fill" style="color:#22c55e;"></i>
+        {% elif kind == 'error' %}
+        <i class="bi bi-exclamation-triangle-fill" style="color:#ef4444;"></i>
+        {% else %}
+        <i class="bi bi-info-circle-fill text-primary"></i>
+        {% endif %}
+        <span class="small">{{ message }}</span>
+      </div>
+      <button type="button" class="btn-close me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+    </div>
+  </div>
+</div>
+<script>
+  (function () {
+    const stack = document.getElementById('toast-stack');
+    const last = stack && stack.lastElementChild;
+    if (last && window.bootstrap) bootstrap.Toast.getOrCreateInstance(last).show();
+  })();
+</script>

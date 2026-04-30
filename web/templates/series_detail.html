@@ -109,6 +109,23 @@
   </div>
 </div>
 
+<!-- Series notes (local series.xml) -->
+<details class="card mb-4 series-notes-card">
+  <summary class="card-header py-3 d-flex align-items-center cursor-pointer">
+    <i class="bi bi-journal-text me-2 text-muted"></i>
+    <span class="fw-semibold">Series Notes</span>
+    <span class="text-muted small ms-2">— local series.xml</span>
+    <i class="bi bi-chevron-down ms-auto chevron"></i>
+  </summary>
+  <div hx-get="/series/{{ s.id }}/series-xml"
+       hx-trigger="toggle once from:closest details"
+       hx-swap="innerHTML">
+    <div class="text-center py-4 text-muted small">
+      <span class="spinner-border spinner-border-sm me-2"></span>Loading notes…
+    </div>
+  </div>
+</details>
+
 <!-- Rename preview (hidden until button clicked) -->
 <div id="rename-preview-section" class="card mb-4 d-none">
   <div class="card-header py-2 d-flex align-items-center">
@@ -138,5 +155,41 @@
     </div>
   </div>
 </div>
+
+<!-- Metadata editor offcanvas (issue-level) -->
+<div class="offcanvas offcanvas-end metadata-offcanvas" tabindex="-1"
+     id="metadata-editor" aria-labelledby="metadata-editor-title">
+  <div class="offcanvas-header">
+    <div>
+      <h5 class="offcanvas-title fw-semibold mb-0" id="metadata-editor-title">Edit Metadata</h5>
+      <div class="text-muted small" id="metadata-editor-subtitle">{{ s.series_name }}</div>
+    </div>
+    <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close"></button>
+  </div>
+  <div id="metadata-editor-body" class="offcanvas-body p-0">
+    <div class="metadata-skeleton p-4">
+      <div class="skel skel-line w-50 mb-3"></div>
+      <div class="skel skel-block mb-3"></div>
+      <div class="skel skel-block mb-3"></div>
+      <div class="skel skel-block"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Toast stack -->
+<div id="toast-stack" class="toast-container position-fixed bottom-0 end-0 p-3" style="z-index:1100;"></div>
+
+<script>
+  (function () {
+    document.body.addEventListener('htmx:configRequest', function (evt) {
+      const trig = evt.detail.elt;
+      if (trig && trig.classList && trig.classList.contains('issue-edit-btn')) {
+        const num = trig.getAttribute('data-issue-num') || '';
+        const sub = document.getElementById('metadata-editor-title');
+        if (sub) sub.textContent = 'Issue #' + num + ' — Edit Metadata';
+      }
+    });
+  })();
+</script>
 
 {% endblock %}

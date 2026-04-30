@@ -1,0 +1,39 @@
+<form hx-post="/series/{{ s.id }}/series-xml"
+      hx-target="#toast-stack"
+      hx-swap="none"
+      class="p-4">
+  <div class="row g-3">
+    <div class="col-12">
+      <label class="form-label small fw-medium">Description</label>
+      <textarea class="form-control form-control-sm" name="Description" rows="4">{{ fields.Description }}</textarea>
+    </div>
+    <div class="col-md-6">
+      <label class="form-label small fw-medium">Genre</label>
+      <input class="form-control form-control-sm" name="Genre" value="{{ fields.Genre }}">
+    </div>
+    <div class="col-md-6">
+      <label class="form-label small fw-medium">Characters</label>
+      <input class="form-control form-control-sm" name="Characters" value="{{ fields.Characters }}" placeholder="Comma-separated">
+    </div>
+    <div class="col-md-6">
+      <label class="form-label small fw-medium">Teams</label>
+      <input class="form-control form-control-sm" name="Teams" value="{{ fields.Teams }}" placeholder="Comma-separated">
+    </div>
+    <div class="col-md-6">
+      <label class="form-label small fw-medium">Locations</label>
+      <input class="form-control form-control-sm" name="Locations" value="{{ fields.Locations }}" placeholder="Comma-separated">
+    </div>
+    <div class="col-12">
+      <label class="form-label small fw-medium">Notes</label>
+      <textarea class="form-control form-control-sm" name="Notes" rows="3">{{ fields.Notes }}</textarea>
+    </div>
+  </div>
+  <div class="d-flex gap-2 mt-3">
+    <button type="submit" class="btn btn-sm btn-cta">
+      <i class="bi bi-check-lg me-1"></i>Save Notes
+    </button>
+    <span class="htmx-indicator align-self-center small text-muted">
+      <span class="spinner-border spinner-border-sm me-1"></span>Saving…
+    </span>
+  </div>
+</form>

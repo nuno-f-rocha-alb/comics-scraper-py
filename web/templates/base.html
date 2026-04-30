@@ -192,6 +192,106 @@
       .theme-toggle { transition: none; }
     }
 
+    /* ── Metadata editor (offcanvas + form) ──────────────────────────────── */
+    .metadata-offcanvas { width: min(560px, 95vw); }
+    .metadata-offcanvas .offcanvas-header {
+      border-bottom: 1px solid rgba(0,0,0,0.08);
+      padding: 1rem 1.25rem;
+    }
+    [data-bs-theme="dark"] .metadata-offcanvas .offcanvas-header {
+      border-bottom-color: rgba(255,255,255,0.08);
+    }
+    .metadata-offcanvas .offcanvas-body { display: flex; flex-direction: column; }
+    .metadata-form-body { flex: 1 1 auto; overflow-y: auto; }
+    .metadata-form-footer {
+      flex: 0 0 auto;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.75rem 1.25rem;
+      border-top: 1px solid rgba(0,0,0,0.08);
+      background: var(--bs-body-bg);
+    }
+    [data-bs-theme="dark"] .metadata-form-footer { border-top-color: rgba(255,255,255,0.08); }
+
+    .metadata-section > summary {
+      list-style: none;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 0.85rem;
+      letter-spacing: 0.02em;
+      padding: 0.5rem 0.75rem;
+      border-radius: 8px;
+      background: rgba(91,141,217,0.06);
+      color: #5b8dd9;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .metadata-section > summary::-webkit-details-marker { display: none; }
+    .metadata-section > summary::before {
+      content: "";
+      width: 8px; height: 8px;
+      border-right: 2px solid currentColor;
+      border-bottom: 2px solid currentColor;
+      transform: rotate(-45deg);
+      transition: transform 0.15s;
+    }
+    .metadata-section[open] > summary::before { transform: rotate(45deg); }
+    .metadata-section[open] > summary { margin-bottom: 0.5rem; }
+
+    /* CTA save button */
+    .btn-cta {
+      background: #22c55e;
+      border: 1px solid #22c55e;
+      color: #fff;
+      font-weight: 600;
+    }
+    .btn-cta:hover, .btn-cta:focus {
+      background: #1ea34d;
+      border-color: #1ea34d;
+      color: #fff;
+    }
+    .btn-cta:focus-visible {
+      box-shadow: 0 0 0 3px rgba(34,197,94,0.35);
+      outline: 0;
+    }
+
+    /* Edit issue button */
+    .issue-edit-btn { color: #6c757d; font-size: 0.85rem; transition: color 0.15s; }
+    .issue-edit-btn:hover { color: #5b8dd9; }
+
+    /* Toast accents */
+    .cs-toast { background: var(--bs-body-bg); border-left: 3px solid var(--bs-border-color); box-shadow: 0 4px 18px rgba(0,0,0,0.18); }
+    .cs-toast-success { border-left-color: #22c55e; }
+    .cs-toast-error   { border-left-color: #ef4444; }
+
+    /* Skeleton loader */
+    .skel {
+      background: linear-gradient(90deg, rgba(91,141,217,0.08), rgba(91,141,217,0.18), rgba(91,141,217,0.08));
+      background-size: 200% 100%;
+      border-radius: 6px;
+      animation: skel-shimmer 1.4s ease-in-out infinite;
+    }
+    .skel-line  { height: 12px; }
+    .skel-block { height: 80px; }
+    @keyframes skel-shimmer {
+      0%   { background-position: 200% 0; }
+      100% { background-position: -200% 0; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .skel { animation: none; }
+      .metadata-section > summary::before { transition: none; }
+    }
+
+    /* Series notes collapsible card */
+    .series-notes-card { padding: 0; }
+    .series-notes-card > summary { list-style: none; }
+    .series-notes-card > summary::-webkit-details-marker { display: none; }
+    .series-notes-card > summary .chevron { transition: transform 0.15s; }
+    .series-notes-card[open] > summary .chevron { transform: rotate(180deg); }
+    .cursor-pointer { cursor: pointer; }
+
     /* ── HTMX indicator ──────────────────────────────────────────────────── */
     .htmx-indicator { display: none; }
     .htmx-request .htmx-indicator { display: inline-block; }

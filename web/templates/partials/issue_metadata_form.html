@@ -1,0 +1,131 @@
+{% set base = "/series/" ~ s.id ~ "/issues/" ~ issue_num ~ "/metadata" %}
+<form id="issue-metadata-form"
+      hx-post="{{ base }}"
+      hx-target="#toast-stack"
+      hx-swap="none">
+  <div class="metadata-form-body p-4">
+
+    {% if from_metron %}
+    <div class="alert alert-info py-2 small d-flex align-items-center gap-2 mb-3" role="status">
+      <i class="bi bi-info-circle-fill"></i>
+      <span>Fields populated from Metron. Review and Save to write back to the file.</span>
+    </div>
+    {% endif %}
+
+    {% if filename %}
+    <div class="text-muted small mb-3 d-flex align-items-center gap-2">
+      <i class="bi bi-file-earmark-zip"></i>
+      <span class="text-truncate" title="{{ filename }}">{{ filename }}</span>
+    </div>
+    {% endif %}
+
+    <details open class="metadata-section mb-3">
+      <summary>Identification</summary>
+      <div class="row g-3 mt-1">
+        <div class="col-md-8">
+          <label class="form-label small fw-medium">Series</label>
+          <input class="form-control form-control-sm" name="Series" value="{{ fields.Series }}">
+        </div>
+        <div class="col-md-4">
+          <label class="form-label small fw-medium">Number</label>
+          <input class="form-control form-control-sm" name="Number" value="{{ fields.Number }}">
+        </div>
+        <div class="col-12">
+          <label class="form-label small fw-medium">Title</label>
+          <input class="form-control form-control-sm" name="Title" value="{{ fields.Title }}">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label small fw-medium">Publisher</label>
+          <input class="form-control form-control-sm" name="Publisher" value="{{ fields.Publisher }}">
+        </div>
+        <div class="col-md-3">
+          <label class="form-label small fw-medium">Year</label>
+          <input type="number" class="form-control form-control-sm" name="Year" value="{{ fields.Year }}">
+        </div>
+        <div class="col-md-3">
+          <label class="form-label small fw-medium">Month</label>
+          <input type="number" min="1" max="12" class="form-control form-control-sm" name="Month" value="{{ fields.Month }}">
+        </div>
+        <div class="col-12">
+          <label class="form-label small fw-medium">Web</label>
+          <input type="url" class="form-control form-control-sm" name="Web" value="{{ fields.Web }}" placeholder="https://…">
+        </div>
+      </div>
+    </details>
+
+    <details open class="metadata-section mb-3">
+      <summary>Creative Team</summary>
+      <p class="text-muted small mb-2 mt-2">Comma-separated for multiple credits.</p>
+      <div class="row g-3">
+        <div class="col-md-6">
+          <label class="form-label small fw-medium">Writer</label>
+          <input class="form-control form-control-sm" name="Writer" value="{{ fields.Writer }}">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label small fw-medium">Penciller</label>
+          <input class="form-control form-control-sm" name="Penciller" value="{{ fields.Penciller }}">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label small fw-medium">Inker</label>
+          <input class="form-control form-control-sm" name="Inker" value="{{ fields.Inker }}">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label small fw-medium">Colorist</label>
+          <input class="form-control form-control-sm" name="Colorist" value="{{ fields.Colorist }}">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label small fw-medium">Letterer</label>
+          <input class="form-control form-control-sm" name="Letterer" value="{{ fields.Letterer }}">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label small fw-medium">Cover Artist</label>
+          <input class="form-control form-control-sm" name="CoverArtist" value="{{ fields.CoverArtist }}">
+        </div>
+      </div>
+    </details>
+
+    <details open class="metadata-section mb-3">
+      <summary>Content</summary>
+      <div class="row g-3 mt-1">
+        <div class="col-12">
+          <label class="form-label small fw-medium">Summary</label>
+          <textarea class="form-control form-control-sm" name="Summary" rows="4">{{ fields.Summary }}</textarea>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label small fw-medium">Genre</label>
+          <input class="form-control form-control-sm" name="Genre" value="{{ fields.Genre }}">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label small fw-medium">Tags</label>
+          <input class="form-control form-control-sm" name="Tags" value="{{ fields.Tags }}">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label small fw-medium">Language ISO</label>
+          <input class="form-control form-control-sm" name="LanguageISO" value="{{ fields.LanguageISO }}" placeholder="en, pt, fr…">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label small fw-medium">Page Count</label>
+          <input type="number" min="0" class="form-control form-control-sm" name="PageCount" value="{{ fields.PageCount }}">
+        </div>
+      </div>
+    </details>
+
+  </div>
+
+  <div class="metadata-form-footer">
+    <button type="button" class="btn btn-sm btn-outline-secondary"
+            hx-get="{{ base }}/from-metron"
+            hx-target="#issue-metadata-form"
+            hx-swap="outerHTML"
+            hx-indicator="#metadata-spinner">
+      <span id="metadata-spinner" class="htmx-indicator spinner-border spinner-border-sm me-1"></span>
+      <i class="bi bi-cloud-arrow-down me-1"></i>Repopulate from Metron
+    </button>
+    <div class="ms-auto d-flex gap-2">
+      <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="offcanvas">Cancel</button>
+      <button type="submit" class="btn btn-sm btn-cta">
+        <i class="bi bi-check-lg me-1"></i>Save
+      </button>
+    </div>
+  </div>
+</form>
