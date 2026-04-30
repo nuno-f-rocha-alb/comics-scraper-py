@@ -36,6 +36,12 @@ def _issue_number(filename: str) -> str | None:
     return None
 
 
+def _expected_filename(entry: tuple, issue_number: str, ext: str) -> str:
+    from util import sanitize_filename
+    formatted = f"{int(issue_number):03d}"
+    return f"{sanitize_filename(entry[1])} #{formatted} ({entry[2]}){ext}"
+
+
 def retag_directory(entry: tuple, directory: str, force: bool = False, dry_run: bool = False) -> tuple[int, int]:
     """Tag CBZ files in a directory. Returns (tagged, skipped)."""
     tagged = skipped = 0
@@ -49,7 +55,21 @@ def retag_directory(entry: tuple, directory: str, force: bool = False, dry_run: 
             logging.warning(f"Could not parse issue number from: {filename}")
             continue
 
+        ext = os.path.splitext(filename)[1].lower()
         cbz_path = os.path.join(directory, filename)
+
+        # Rename to standard format if needed
+        expected_name = _expected_filename(entry, issue_number, ext)
+        expected_path = os.path.join(directory, expected_name)
+        if filename != expected_name:
+            if dry_run:
+                logging.info(f"[DRY RUN] Would rename: {filename} -> {expected_name}")
+            elif os.path.exists(expected_path):
+                logging.warning(f"Cannot rename {filename}: target {expected_name} already exists")
+            else:
+                os.rename(cbz_path, expected_path)
+                logging.info(f"Renamed: {filename} -> {expected_name}")
+                cbz_path = expected_path
 
         if not force and has_metadata(cbz_path):
             skipped += 1
