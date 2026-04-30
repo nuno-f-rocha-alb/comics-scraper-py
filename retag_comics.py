@@ -30,6 +30,10 @@ def _issue_number(filename: str) -> str | None:
     m = re.search(r"#(\d+)", name)
     if m:
         return str(int(m.group(1)))
+    # "NNN (of MM)" — miniseries format: the issue number precedes "(of N)"
+    m = re.search(r"(\d+)\s*\(of\s*\d+\)", name, re.IGNORECASE)
+    if m:
+        return str(int(m.group(1)))
     # "NNN (YYYY)" — number immediately before a year in parens
     m = re.search(r"(\d+)\s*\(\d{4}\)", name)
     if m:
