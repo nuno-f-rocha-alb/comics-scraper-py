@@ -25,18 +25,23 @@ def has_metadata(cbz_path: str) -> bool:
 
 
 def _issue_number(filename: str) -> str | None:
-    # Prefer explicit "#NNN" format
-    m = re.search(r"#(\d+)", filename)
+    name = os.path.splitext(filename)[0]
+    # Prefer explicit "#NNN"
+    m = re.search(r"#(\d+)", name)
     if m:
         return str(int(m.group(1)))
-    # Fall back to "NNN (YYYY)" format: number immediately before a year in parens
-    m = re.search(r"(\d+)\s*\(\d{4}\)", filename)
+    # "NNN (YYYY)" — number immediately before a year in parens
+    m = re.search(r"(\d+)\s*\(\d{4}\)", name)
     if m:
         return str(int(m.group(1)))
+    # Fallback: last 1-3 digit number (avoids matching 4-digit years)
+    candidates = re.findall(r"\b(\d{1,3})\b", name)
+    if candidates:
+        return str(int(candidates[-1]))
     return None
 
 
-def _expected_filename(entry: tuple, issue_number: str, ext: str) -> str:
+def expected_filename(entry: tuple, issue_number: str, ext: str) -> str:
     from util import sanitize_filename
     formatted = f"{int(issue_number):03d}"
     return f"{sanitize_filename(entry[1])} #{formatted} ({entry[2]}){ext}"
@@ -55,21 +60,7 @@ def retag_directory(entry: tuple, directory: str, force: bool = False, dry_run: 
             logging.warning(f"Could not parse issue number from: {filename}")
             continue
 
-        ext = os.path.splitext(filename)[1].lower()
         cbz_path = os.path.join(directory, filename)
-
-        # Rename to standard format if needed
-        expected_name = _expected_filename(entry, issue_number, ext)
-        expected_path = os.path.join(directory, expected_name)
-        if filename != expected_name:
-            if dry_run:
-                logging.info(f"[DRY RUN] Would rename: {filename} -> {expected_name}")
-            elif os.path.exists(expected_path):
-                logging.warning(f"Cannot rename {filename}: target {expected_name} already exists")
-            else:
-                os.rename(cbz_path, expected_path)
-                logging.info(f"Renamed: {filename} -> {expected_name}")
-                cbz_path = expected_path
 
         if not force and has_metadata(cbz_path):
             skipped += 1

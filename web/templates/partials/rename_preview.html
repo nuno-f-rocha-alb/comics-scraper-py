@@ -1,0 +1,69 @@
+{% if msg %}
+<div class="alert alert-success alert-dismissible fade show mx-3 mt-3 mb-0 py-2 small" role="alert">
+  <i class="bi bi-check-circle me-1"></i>{{ msg }}
+  <button type="button" class="btn-close btn-sm" data-bs-dismiss="alert"></button>
+</div>
+{% endif %}
+
+{% if not changed and not unparseable %}
+<p class="text-success small m-3">
+  <i class="bi bi-check-circle me-1"></i>
+  {% if correct_count %}Todos os {{ correct_count }} ficheiro(s) já têm o nome correto.{% else %}Nenhum ficheiro encontrado nesta pasta.{% endif %}
+</p>
+{% else %}
+<form hx-post="/series/{{ s.id }}/rename-apply"
+      hx-target="#rename-preview-container"
+      hx-swap="innerHTML">
+
+  {% if changed %}
+  <div class="table-responsive">
+    <table class="table table-sm table-hover small mb-1 font-monospace">
+      <thead class="table-dark">
+        <tr>
+          <th style="width:2rem;">
+            <input type="checkbox" id="chk-all" checked
+                   onchange="document.querySelectorAll('.rnm-chk').forEach(c=>c.checked=this.checked)">
+          </th>
+          <th>Nome atual</th>
+          <th style="width:2rem;"></th>
+          <th>Novo nome</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in changed %}
+        <tr>
+          <td>
+            <input type="checkbox" class="rnm-chk" name="rename"
+                   value="{{ item.folder }}|{{ item.current }}|{{ item.expected }}" checked>
+          </td>
+          <td class="text-danger text-truncate" style="max-width:320px;" title="{{ item.current }}">{{ item.current }}</td>
+          <td class="text-center text-muted px-1"><i class="bi bi-arrow-right"></i></td>
+          <td class="text-success text-truncate" style="max-width:320px;" title="{{ item.expected }}">{{ item.expected }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
+  <div class="px-3 pb-3">
+    {% if correct_count %}
+    <p class="text-muted small mb-2">{{ correct_count }} ficheiro(s) já com o nome correto (não mostrados).</p>
+    {% endif %}
+    {% if unparseable %}
+    <p class="text-warning small mb-2">
+      <i class="bi bi-exclamation-triangle me-1"></i>
+      {{ unparseable | length }} ficheiro(s) sem número de issue reconhecível (não serão renomeados):
+      {% for item in unparseable %}
+      <span class="d-block ms-3">{{ item.current }}</span>
+      {% endfor %}
+    </p>
+    {% endif %}
+    {% if changed %}
+    <button type="submit" class="btn btn-sm btn-primary">
+      <i class="bi bi-pencil me-1"></i>Aplicar Rename
+    </button>
+    {% endif %}
+  </div>
+</form>
+{% endif %}

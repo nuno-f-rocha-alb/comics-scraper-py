@@ -87,6 +87,14 @@
                   title="Scan folder and tag any untagged CBZ files">
             <i class="bi bi-arrow-repeat me-1"></i>Scan Folder
           </button>
+          <button class="btn btn-sm btn-outline-secondary"
+                  hx-get="/series/{{ s.id }}/rename-preview"
+                  hx-target="#rename-preview-container"
+                  hx-swap="innerHTML"
+                  hx-on::after-request="document.getElementById('rename-preview-section').classList.remove('d-none')"
+                  title="Preview and apply file renames to standard format">
+            <i class="bi bi-files me-1"></i>Preview Rename
+          </button>
           <button class="btn btn-sm btn-outline-danger"
                   hx-delete="/series/{{ s.id }}"
                   hx-confirm="Delete {{ s.series_name }}? This cannot be undone."
@@ -97,6 +105,18 @@
       </div>
     </div>
   </div>
+</div>
+
+<!-- Rename preview (hidden until button clicked) -->
+<div id="rename-preview-section" class="card mb-4 d-none">
+  <div class="card-header py-2 d-flex align-items-center">
+    <span class="fw-semibold small">Preview Rename</span>
+    <button class="btn btn-link btn-sm text-muted p-0 ms-auto"
+            onclick="document.getElementById('rename-preview-section').classList.add('d-none')">
+      <i class="bi bi-x-lg"></i>
+    </button>
+  </div>
+  <div id="rename-preview-container"></div>
 </div>
 
 <!-- Issues -->

@@ -1210,3 +1210,80 @@ def series_scan(series_id: int, force: bool = Form(default=False), db: Session =
         '<i class="bi bi-arrow-repeat me-1"></i>Scan started…'
         '</button>'
     )
+
+
+@app.get("/series/{series_id}/rename-preview", response_class=HTMLResponse)
+def rename_preview(request: Request, series_id: int, msg: str = "", db: Session = Depends(get_db)):
+    from retag_comics import _issue_number as _parse_num, expected_filename
+
+    s = db.query(Series).filter(Series.id == series_id).first()
+    if not s:
+        raise HTTPException(status_code=404)
+
+    entry = s.to_scraper_tuple()
+
+    def _scan(directory: str, scan_entry: tuple) -> list[dict]:
+        if not os.path.isdir(directory):
+            return []
+        results = []
+        for filename in sorted(os.listdir(directory)):
+            if not filename.lower().endswith((".cbz", ".cbr")):
+                continue
+            ext = os.path.splitext(filename)[1].lower()
+            num = _parse_num(filename)
+            exp = expected_filename(scan_entry, num, ext) if num else None
+            results.append({
+                "folder": directory,
+                "current": filename,
+                "expected": exp,
+                "changed": exp is not None and filename != exp,
+            })
+        return results
+
+    series_dir = _series_dir(s)
+    items = _scan(series_dir, entry)
+
+    annual_entry = (entry[0], f"{entry[1]} Annual", entry[2])
+    items += _scan(os.path.join(series_dir, "Annuals"), annual_entry)
+
+    changed = [i for i in items if i["changed"]]
+    correct_count = sum(1 for i in items if i["expected"] and not i["changed"])
+    unparseable = [i for i in items if i["expected"] is None]
+
+    return templates.TemplateResponse("partials/rename_preview.html", {
+        "request": request,
+        "s": s,
+        "changed": changed,
+        "correct_count": correct_count,
+        "unparseable": unparseable,
+        "msg": msg,
+    })
+
+
+@app.post("/series/{series_id}/rename-apply", response_class=HTMLResponse)
+async def rename_apply(request: Request, series_id: int, db: Session = Depends(get_db)):
+    form = await request.form()
+    renamed = errors = 0
+    for value in form.getlist("rename"):
+        try:
+            folder, current, expected = value.split("|", 2)
+            src = os.path.join(folder, current)
+            dst = os.path.join(folder, expected)
+            if not os.path.exists(src):
+                log.warning("Rename: source not found: %s", src)
+                errors += 1
+            elif os.path.exists(dst):
+                log.warning("Rename: target already exists: %s", dst)
+                errors += 1
+            else:
+                os.rename(src, dst)
+                log.info("Renamed: %s -> %s", current, expected)
+                renamed += 1
+        except Exception as exc:
+            log.error("Rename error: %s", exc)
+            errors += 1
+
+    msg = f"{renamed} ficheiro(s) renomeado(s)"
+    if errors:
+        msg += f", {errors} erro(s)"
+    return rename_preview(request, series_id, msg=msg, db=db)
