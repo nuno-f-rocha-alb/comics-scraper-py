@@ -96,14 +96,14 @@ def _local_annual_issue_numbers(s: Series) -> set[str]:
     return _extract_nums(os.path.join(_series_dir(s), "Annuals"))
 
 
-def _fetch_metron_issues(metron_series_id: int) -> list[dict]:
+def _fetch_metron_issues(metron_series_id: int, block: bool = True) -> list[dict]:
     from config import METRON_BASE_URL
     from metadata.metron_client import get as metron_get
 
     issues: list[dict] = []
     url = f"{METRON_BASE_URL}/issue/?series_id={metron_series_id}&ordering=number"
     while url:
-        r = metron_get(url)
+        r = metron_get(url, block=block)
         data = r.json()
         issues.extend(data.get("results", []))
         url = data.get("next")
@@ -161,7 +161,7 @@ _ISSUE_CACHE_DAYS = 7
 
 
 def _get_or_fetch_metron_issues(
-    metron_series_id: int, db: Session, *, force: bool = False
+    metron_series_id: int, db: Session, *, force: bool = False, block: bool = True
 ) -> list[dict]:
     """Return issues from local cache (if fresh) else fetch from Metron and store."""
     from datetime import timedelta
@@ -190,7 +190,7 @@ def _get_or_fetch_metron_issues(
                 for r in rows
             ]
 
-    raw = _fetch_metron_issues(metron_series_id)
+    raw = _fetch_metron_issues(metron_series_id, block=block)
 
     # Load existing cache entries keyed by metron_id to preserve already-fetched titles.
     existing_by_id: dict = {
@@ -201,7 +201,7 @@ def _get_or_fetch_metron_issues(
     }
 
     from config import METRON_BASE_URL
-    from metadata.metron_client import get as metron_get
+    from metadata.metron_client import RateLimitedError, get as metron_get
     now = datetime.now(timezone.utc)
     seen_ids: set = set()
 
@@ -215,14 +215,17 @@ def _get_or_fetch_metron_issues(
         cached_name = cached_row.name if cached_row else None
 
         # Only call the detail endpoint for issues without a stored title.
+        # Always non-blocking: skip title on rate limit rather than hanging the request.
         if not cached_name:
             api_name = issue.get("name")
             if not (isinstance(api_name, list) and api_name):
                 try:
-                    detail = metron_get(f"{METRON_BASE_URL}/issue/{mid}/").json()
+                    detail = metron_get(f"{METRON_BASE_URL}/issue/{mid}/", block=False).json()
                     names = detail.get("name")
                     if isinstance(names, list) and names:
                         issue["name"] = names
+                except RateLimitedError:
+                    pass  # title will be fetched on next cache refresh
                 except Exception as exc:
                     log.warning("Could not fetch detail for issue %s: %s", mid, exc)
 
@@ -1131,19 +1134,31 @@ def series_issues_partial(
     regular_issues: list[dict] = []
     annual_issues: list[dict] = []
 
+    from metadata.metron_client import RateLimitedError
+
     try:
-        raw = _get_or_fetch_metron_issues(s.metron_series_id, db, force=force)
+        raw = _get_or_fetch_metron_issues(s.metron_series_id, db, force=force, block=False)
         regular_issues = _build_issue_list(raw, local_nums)
+    except RateLimitedError as exc:
+        secs = int(exc.seconds) + 2
+        return HTMLResponse(
+            f'<div class="alert alert-warning m-3 d-flex align-items-center gap-2 small">'
+            f'  <i class="bi bi-hourglass-split fs-5"></i>'
+            f'  <span>Limite de pedidos ao Metron atingido — a retomar em <strong>{secs}s</strong></span>'
+            f'</div>'
+            f'<div hx-get="/series/{series_id}/issues" hx-trigger="load delay:{secs}s"'
+            f'     hx-target="#issues-container" hx-swap="innerHTML"></div>'
+        )
     except Exception as exc:
         return HTMLResponse(
-            f'<div class="alert alert-danger m-3">Error fetching issues from Metron: {exc}</div>'
+            f'<div class="alert alert-danger m-3">Erro ao obter issues do Metron: {exc}</div>'
         )
 
     if s.metron_annual_series_id:
         try:
-            raw_annual = _get_or_fetch_metron_issues(s.metron_annual_series_id, db, force=force)
+            raw_annual = _get_or_fetch_metron_issues(s.metron_annual_series_id, db, force=force, block=False)
             annual_issues = _build_issue_list(raw_annual, local_annual_nums)
-        except Exception:
+        except (RateLimitedError, Exception):
             pass
 
     first = (
