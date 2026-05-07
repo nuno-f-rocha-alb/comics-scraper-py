@@ -68,6 +68,15 @@ def check_and_download_comics(
     ignore_keywords = ['Access', 'Preview', 'TPB']
 
     existing_files = {f for f in os.listdir(local_dir)}
+    # Clean up leftover .part files from interrupted downloads
+    for f in list(existing_files):
+        if f.endswith(".part"):
+            try:
+                os.remove(os.path.join(local_dir, f))
+                logging.info("Removed orphan .part file: %s", f)
+            except OSError as exc:
+                logging.warning("Could not remove .part file %s: %s", f, exc)
+            existing_files.discard(f)
     annuals_dir = os.path.join(local_dir, "Annuals")
     existing_annual_files = None
 

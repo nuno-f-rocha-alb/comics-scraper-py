@@ -1,12 +1,13 @@
 import logging
 import os
 from datetime import datetime
+from logging.handlers import TimedRotatingFileHandler
 
 SERIES_FILE_PATH = "/app/comics/series_list.txt"  # Update with your series list file
 CACHE_FILE_PATH = "/app/cache/search_cache.json"
 CURRENT_DATE = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 LOG_FOLDER = f"logs/"
-LOG_FILENAME = f"comic_downloader_{CURRENT_DATE}.log"
+LOG_FILENAME = "comic_downloader.log"
 os.makedirs(LOG_FOLDER, exist_ok=True)
 
 _LOG_FMT = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
@@ -16,7 +17,13 @@ _root.setLevel(logging.INFO)
 # Add handlers explicitly so they work even when uvicorn has already
 # configured the root logger (logging.basicConfig is a no-op in that case).
 if not any(isinstance(h, logging.FileHandler) for h in _root.handlers):
-    _fh = logging.FileHandler(os.path.join(LOG_FOLDER, LOG_FILENAME))
+    _fh = TimedRotatingFileHandler(
+        os.path.join(LOG_FOLDER, LOG_FILENAME),
+        when="midnight",
+        backupCount=30,
+        encoding="utf-8",
+    )
+    _fh.suffix = "%Y-%m-%d.log"
     _fh.setFormatter(_LOG_FMT)
     _root.addHandler(_fh)
 

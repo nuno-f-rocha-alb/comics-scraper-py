@@ -138,7 +138,7 @@ def _build_issue_list(raw: list[dict], local_nums: set[str]) -> list[dict]:
         except (ValueError, TypeError):
             normalized = num_str
 
-        date_str = issue.get("cover_date") or issue.get("store_date") or ""
+        date_str = issue.get("store_date") or issue.get("cover_date") or ""
         issue_date = None
         if date_str:
             try:

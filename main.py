@@ -45,17 +45,24 @@ def run_scraper():
 
     for series_id, entry, monitored_regular, monitored_annual in series_list:
         logging.info("Searching for comics in series: %s by %s", entry[1], entry[0])
-        available_comics = search_comics(entry)
-        if available_comics:
-            local_dir = create_series_directory(entry)
-            check_and_download_comics(
-                entry, available_comics, local_dir,
-                series_id=series_id,
-                monitored_regular=monitored_regular,
-                monitored_annual=monitored_annual,
+        try:
+            available_comics = search_comics(entry)
+            if available_comics:
+                local_dir = create_series_directory(entry)
+                check_and_download_comics(
+                    entry, available_comics, local_dir,
+                    series_id=series_id,
+                    monitored_regular=monitored_regular,
+                    monitored_annual=monitored_annual,
+                )
+            else:
+                logging.warning("No comics found for series: %s", entry[1])
+        except Exception as exc:
+            logging.error(
+                "Series %s (%s) failed; continuing with next series. Error: %s",
+                entry[1], entry[0], exc,
+                exc_info=True,
             )
-        else:
-            logging.warning("No comics found for series: %s", entry[1])
 
     elapsed = time.time() - start_time
     minutes, seconds = int(elapsed // 60), elapsed % 60
