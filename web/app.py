@@ -3,7 +3,8 @@ import logging
 import os
 import re
 from contextlib import asynccontextmanager
-from datetime import date, datetime, timezone
+from calendar import monthrange
+from datetime import date, datetime, timedelta, timezone
 from urllib.parse import quote
 
 log = logging.getLogger(__name__)
@@ -12,6 +13,7 @@ from fastapi import Depends, FastAPI, Form, HTTPException, Query, Request, Respo
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from web.database import SessionLocal, init_db
@@ -1596,6 +1598,178 @@ def _set_log_setting(db, key: str, value: str) -> None:
     else:
         db.add(AppSetting(key=key, value=value))
     db.commit()
+
+
+# ── Calendar ───────────────────────────────────────────────────────────────────
+
+
+def _calendar_range(view: str, ref: date) -> tuple[date, date]:
+    """Return (start, end) inclusive for the calendar grid containing ref.
+
+    Week view: Monday → Sunday of ref's week.
+    Month view: starts on the Monday of the week that contains day 1; ends
+    on the Sunday of the week that contains the last day. Always a multiple
+    of 7 days so the grid renders as full rows.
+    """
+    if view == "week":
+        start = ref - timedelta(days=ref.weekday())
+        return start, start + timedelta(days=6)
+    first = ref.replace(day=1)
+    last = date(ref.year, ref.month, monthrange(ref.year, ref.month)[1])
+    start = first - timedelta(days=first.weekday())
+    end = last + timedelta(days=(6 - last.weekday()))
+    return start, end
+
+
+def _calendar_shift(view: str, ref: date, direction: int) -> date:
+    """direction = -1 or +1; week shifts by 7 days, month by one calendar month."""
+    if view == "week":
+        return ref + timedelta(days=7 * direction)
+    if direction < 0:
+        return (ref.replace(day=1) - timedelta(days=1)).replace(day=1)
+    year, month = ref.year, ref.month + 1
+    if month > 12:
+        year, month = year + 1, 1
+    return date(year, month, 1)
+
+
+def _load_calendar_events(
+    db: Session, start: date, end: date
+) -> dict[str, list[dict]]:
+    """Return {YYYY-MM-DD: [event, ...]} for enabled series in [start, end].
+
+    Uses MetronIssueCache.store_date (in-store date) — explicit user choice
+    over cover_date because the latter often drifts a month from release.
+    """
+    start_iso = start.isoformat()
+    end_iso = end.isoformat()
+
+    rows = (
+        db.query(MetronIssueCache, Series)
+        .join(
+            Series,
+            or_(
+                MetronIssueCache.series_id == Series.metron_series_id,
+                MetronIssueCache.series_id == Series.metron_annual_series_id,
+            ),
+        )
+        .filter(Series.enabled == True)  # noqa: E712
+        .filter(MetronIssueCache.store_date.isnot(None))
+        .filter(MetronIssueCache.store_date != "")
+        .filter(MetronIssueCache.store_date >= start_iso)
+        .filter(MetronIssueCache.store_date <= end_iso)
+        .all()
+    )
+
+    # Cache local issue numbers per series once instead of scanning the
+    # folder for every event.
+    local_cache: dict[tuple[int, bool], set[str]] = {}
+    today = date.today()
+    events: dict[str, list[dict]] = {}
+
+    for issue, s in rows:
+        is_annual = bool(
+            s.metron_annual_series_id and issue.series_id == s.metron_annual_series_id
+        )
+        key = (s.id, is_annual)
+        if key not in local_cache:
+            local_cache[key] = (
+                _local_annual_issue_numbers(s) if is_annual
+                else _local_issue_numbers(s)
+            )
+        local_nums = local_cache[key]
+
+        num_raw = (issue.number or "").strip()
+        try:
+            num_norm = str(int(float(num_raw))) if num_raw else ""
+        except (ValueError, TypeError):
+            num_norm = num_raw
+        downloaded = bool(num_norm) and num_norm in local_nums
+
+        try:
+            ev_date = date.fromisoformat(issue.store_date)
+        except ValueError:
+            continue
+
+        if downloaded:
+            status = "downloaded"
+        elif ev_date == today:
+            status = "today"
+        elif ev_date < today:
+            status = "missing"
+        else:
+            status = "upcoming"
+
+        events.setdefault(issue.store_date, []).append({
+            "series_id": s.id,
+            "series_name": s.series_name + (" Annual" if is_annual else ""),
+            "issue_number": num_raw,
+            "issue_name": issue.name or "",
+            "status": status,
+            "is_annual": is_annual,
+        })
+
+    for day_list in events.values():
+        day_list.sort(key=lambda e: (e["series_name"].lower(), e["issue_number"]))
+    return events
+
+
+@app.get("/calendar", response_class=HTMLResponse)
+def calendar_page(
+    request: Request,
+    view: str = "month",
+    date_str: str = Query("", alias="date"),
+    db: Session = Depends(get_db),
+):
+    if view not in ("month", "week"):
+        view = "month"
+    try:
+        ref = date.fromisoformat(date_str) if date_str else date.today()
+    except ValueError:
+        ref = date.today()
+
+    start, end = _calendar_range(view, ref)
+    events = _load_calendar_events(db, start, end)
+
+    # Build the list of weeks (each = 7 dicts with date + events).
+    weeks: list[list[dict]] = []
+    cursor = start
+    today = date.today()
+    while cursor <= end:
+        week: list[dict] = []
+        for _ in range(7):
+            week.append({
+                "date": cursor,
+                "iso": cursor.isoformat(),
+                "is_today": cursor == today,
+                "in_view_month": (view == "week") or cursor.month == ref.month,
+                "events": events.get(cursor.isoformat(), []),
+            })
+            cursor += timedelta(days=1)
+        weeks.append(week)
+
+    prev_ref = _calendar_shift(view, ref, -1).isoformat()
+    next_ref = _calendar_shift(view, ref, +1).isoformat()
+    today_iso = date.today().isoformat()
+
+    if view == "week":
+        header_label = f"{start.strftime('%b %d')} — {end.strftime('%b %d, %Y')}"
+    else:
+        header_label = ref.strftime("%B %Y")
+
+    return templates.TemplateResponse(
+        "calendar.html",
+        {
+            "request": request,
+            "view": view,
+            "weeks": weeks,
+            "header_label": header_label,
+            "prev_ref": prev_ref,
+            "next_ref": next_ref,
+            "today_iso": today_iso,
+            "current_ref": ref.isoformat(),
+        },
+    )
 
 
 @app.get("/logs", response_class=HTMLResponse)
