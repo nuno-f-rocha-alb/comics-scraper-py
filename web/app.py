@@ -179,9 +179,16 @@ _ISSUE_CACHE_DAYS = 7
 
 
 def _get_or_fetch_metron_issues(
-    metron_series_id: int, db: Session, *, force: bool = False, block: bool = True
+    metron_series_id: int, db: Session, *,
+    force: bool = False, block: bool = True, skip_titles: bool = False,
 ) -> list[dict]:
-    """Return issues from local cache (if fresh) else fetch from Metron and store."""
+    """Return issues from local cache (if fresh) else fetch from Metron and store.
+
+    skip_titles=True skips the per-issue detail call that resolves missing
+    titles — use from background jobs that only need the issue list (e.g.,
+    refreshing total_issues), because that detail call is the main source of
+    burst-rate-limit pressure (N calls per series).
+    """
     from datetime import timedelta
 
     if not force:
@@ -234,7 +241,7 @@ def _get_or_fetch_metron_issues(
 
         # Only call the detail endpoint for issues without a stored title.
         # Always non-blocking: skip title on rate limit rather than hanging the request.
-        if not cached_name:
+        if not cached_name and not skip_titles:
             api_name = issue.get("name")
             if not (isinstance(api_name, list) and api_name):
                 try:

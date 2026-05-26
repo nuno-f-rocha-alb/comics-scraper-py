@@ -63,7 +63,12 @@ def _refresh_metron_caches() -> None:
         for s in rows:
             for mid in filter(None, (s.metron_series_id, s.metron_annual_series_id)):
                 try:
-                    _get_or_fetch_metron_issues(mid, db, force=True, block=True)
+                    # skip_titles=True keeps the burst-rate-limit footprint to
+                    # 1 call per series. Per-issue titles are fetched lazily
+                    # when the user opens the series page in the UI.
+                    _get_or_fetch_metron_issues(
+                        mid, db, force=True, block=True, skip_titles=True,
+                    )
                 except RateLimitedError:
                     logging.warning(
                         "Metron rate limited while refreshing %s — skipping remaining series.",
