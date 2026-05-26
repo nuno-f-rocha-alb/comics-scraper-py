@@ -123,7 +123,7 @@
         {% if s.total_issues %}
         <div class="series-card-progress">
           <div class="progress">
-            <div class="progress-bar bg-primary" style="width:{{ pct }}%;"></div>
+            <div class="progress-bar" style="width:{{ pct }}%;"></div>
           </div>
           <div class="progress-label">{{ lc }} / {{ s.total_issues }}</div>
         </div>
@@ -227,15 +227,22 @@
 <div id="toast-stack" class="toast-container position-fixed bottom-0 end-0 p-3" style="z-index:1100;"></div>
 
 <style>
-  /* Card border by status (left thin bar like Sonarr) */
-  .series-card { position: relative; border-left: 4px solid transparent; }
+  /* Progress bar colour reflects card status (Sonarr-style). */
+  .series-card { position: relative; }
   .series-card-link { display: block; color: inherit; text-decoration: none; }
 
-  .status-continuing-complete  { border-left-color: #5b8dd9; }   /* blue */
-  .status-ended-complete       { border-left-color: #22c55e; }   /* green */
-  .status-missing-monitored    { border-left-color: #ff7b72; }   /* red */
-  .status-missing-unmonitored  { border-left-color: #ff8c42; }   /* orange */
-  .status-downloading          { border-left-color: #a78bfa; }   /* purple */
+  .series-card.status-continuing-complete  .progress-bar { background-color: #5b8dd9; }
+  .series-card.status-ended-complete       .progress-bar { background-color: #22c55e; }
+  .series-card.status-missing-monitored    .progress-bar { background-color: #ff7b72; }
+  .series-card.status-missing-unmonitored  .progress-bar { background-color: #ff8c42; }
+  .series-card.status-downloading          .progress-bar { background-color: #a78bfa; }
+
+  /* Cards without total_issues fall back to colouring the label */
+  .series-card.status-continuing-complete  .progress-label { color: #5b8dd9; }
+  .series-card.status-ended-complete       .progress-label { color: #22c55e; }
+  .series-card.status-missing-monitored    .progress-label { color: #ff7b72; }
+  .series-card.status-missing-unmonitored  .progress-label { color: #ff8c42; }
+  .series-card.status-downloading          .progress-label { color: #a78bfa; }
 
   .legend-dot {
     display: inline-block;
