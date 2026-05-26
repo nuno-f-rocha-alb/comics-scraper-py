@@ -37,8 +37,11 @@ class Series(Base):
     total_issues: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     # Metron series classification — used to detect ended/concluded series so
-    # the scraper can stop searching for new issues.
+    # the scraper can stop searching for new issues. `status` is the primary
+    # signal (e.g. "Ongoing", "Cancelled", "Completed"); series_type/year_end
+    # are fallbacks for older rows that haven't been refreshed yet.
     series_type: Mapped[str | None] = mapped_column(String, nullable=True)
+    status: Mapped[str | None] = mapped_column(String, nullable=True)
     year_end: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)

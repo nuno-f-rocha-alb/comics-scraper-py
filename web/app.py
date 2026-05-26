@@ -99,23 +99,27 @@ def _local_annual_issue_numbers(s: Series) -> set[str]:
     return _extract_nums(os.path.join(_series_dir(s), "Annuals"))
 
 
-# Series types from Metron that are intrinsically a single edition.
+# Metron status values that mean the series will get no further issues.
+_ENDED_STATUSES = {"cancelled", "completed", "ended"}
+# Fallback only — used when status isn't populated yet. Intrinsically
+# single-edition types.
 _ENDED_SERIES_TYPES = {"Cancelled Series", "One-Shot", "Single Issue"}
 
 
 def _is_series_ended(s: Series) -> bool:
     """True if Metron's metadata says this series will get no further issues.
 
-    Only trusts definitive signals:
-      - year_end set (Metron explicitly recorded the series as having ended)
-      - series_type intrinsically single-edition
+    Primary signal is `status` (e.g. Ongoing / Hiatus / Cancelled / Completed
+    / Ended), which Metron exposes alongside series_type. status is more
+    reliable because series_type can be mislabelled (DC's Absolute Batman is
+    tagged "Single Issue" on Metron despite being an ongoing run with 20+
+    issues — status correctly says "Ongoing").
 
-    Deliberately does NOT treat "Limited/Mini-Series with local == total" as
-    ended: Metron's total_issues grows as new issues are scheduled, so a
-    match only means "you're caught up", not "the series concluded". A
-    running Limited Series with 20 of 20 announced will gain a 21st later
-    and we'd produce a false positive (e.g. DC's Absolute line).
+    Falls back to year_end + intrinsically single-edition series_type when
+    status hasn't been refreshed onto the row yet.
     """
+    if s.status:
+        return s.status.strip().lower() in _ENDED_STATUSES
     if s.year_end:
         return True
     if s.series_type in _ENDED_SERIES_TYPES:
@@ -196,6 +200,11 @@ def _refresh_series_meta_from_metron(s: Series, db: Session) -> bool:
         s.series_type = st.get("name") or s.series_type
     elif isinstance(st, str):
         s.series_type = st
+    status = data.get("status")
+    if isinstance(status, dict):
+        s.status = status.get("name") or s.status
+    elif isinstance(status, str):
+        s.status = status
     ye = data.get("year_end")
     if ye:
         s.year_end = ye
