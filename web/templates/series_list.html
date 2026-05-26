@@ -105,15 +105,6 @@
         {% if not s.enabled %}
         <span class="cover-status badge badge-paused" style="font-size:0.6rem;">Paused</span>
         {% endif %}
-        {% if st == 'ended-complete' or st == 'continuing-complete' %}
-        <span class="cover-status cover-status-tl badge"
-              style="font-size:0.6rem;background:rgba(34,197,94,0.85);color:#fff;">
-          {% if st == 'ended-complete' %}Ended ✓{% else %}Complete{% endif %}
-        </span>
-        {% elif s.year_end or s.series_type in ['Cancelled Series'] %}
-        <span class="cover-status cover-status-tl badge"
-              style="font-size:0.6rem;background:rgba(255,123,114,0.85);color:#fff;">Ended</span>
-        {% endif %}
       </div>
       <div class="series-card-body">
         <div class="series-card-title">{{ s.series_name }}</div>
