@@ -12,7 +12,13 @@ os.makedirs(LOG_FOLDER, exist_ok=True)
 
 _LOG_FMT = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
 _root = logging.getLogger()
-_root.setLevel(logging.INFO)
+_LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+_root.setLevel(getattr(logging, _LOG_LEVEL, logging.INFO))
+
+# Keep third-party HTTP libs at WARNING even when the app is at DEBUG —
+# otherwise urllib3 and requests flood the log with connection internals.
+logging.getLogger("urllib3").setLevel(logging.WARNING)
+logging.getLogger("requests").setLevel(logging.WARNING)
 
 # Add handlers explicitly so they work even when uvicorn has already
 # configured the root logger (logging.basicConfig is a no-op in that case).

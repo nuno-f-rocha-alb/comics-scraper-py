@@ -286,6 +286,16 @@ def _get_or_fetch_metron_issues(
             MetronIssueCache.metron_id.in_(stale_ids),
         ).delete(synchronize_session=False)
 
+    # Keep Series.total_issues in sync — it's both the progress-bar denominator
+    # and the scraper's issue_max upper bound (see check_and_download_comics.py).
+    new_total = len(seen_ids)
+    if new_total:
+        (
+            db.query(Series)
+            .filter(Series.metron_series_id == metron_series_id)
+            .update({Series.total_issues: new_total}, synchronize_session=False)
+        )
+
     db.commit()
     return raw
 
@@ -676,14 +686,19 @@ def sync_covers(db: Session = Depends(get_db)):
             except Exception:
                 pass
 
-        # Phase 2: fetch cover + issue count from Metron detail
-        if s.metron_series_id and not s.cover_image_url:
+        # Phase 2: refresh cover + issue count from Metron detail
+        # Runs whenever the series has a metron_series_id — the button is a
+        # manual "Refresh from Metron" so it must always re-sync, not just on
+        # series that are missing a cover.
+        if s.metron_series_id:
             try:
                 r = metron_get(f"{METRON_BASE_URL}/series/{s.metron_series_id}/")
                 data = r.json()
                 img = data.get("image") or ""
-                s.cover_image_url = img if isinstance(img, str) and img else None
-                s.total_issues = data.get("issue_count") or None
+                new_cover = img if isinstance(img, str) and img else None
+                if new_cover:
+                    s.cover_image_url = new_cover
+                s.total_issues = data.get("issue_count") or s.total_issues
                 # Backfill CV ID if missing
                 if not s.comicvine_volume_id and data.get("cv_id"):
                     s.comicvine_volume_id = data["cv_id"]

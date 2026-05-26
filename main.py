@@ -39,8 +39,46 @@ def _load_series() -> list[tuple]:
     return result
 
 
+def _refresh_metron_caches() -> None:
+    """Force-refresh the Metron issue cache for every enabled series before the
+    scraper run, so Series.total_issues (= scraper issue_max upper bound) is
+    current. Without this, a series that gains a new issue on Metron would be
+    invisible to the scraper until the user manually clicks Refresh in the UI.
+    """
+    from web.app import _get_or_fetch_metron_issues
+    from web.database import SessionLocal
+    from web.models import Series
+    from metadata.metron_client import RateLimitedError
+
+    with SessionLocal() as db:
+        rows = (
+            db.query(Series)
+            .filter(Series.enabled == True)  # noqa: E712
+            .filter(Series.metron_series_id.isnot(None))
+            .all()
+        )
+        if not rows:
+            return
+        logging.info("Refreshing Metron caches for %d series before scrape…", len(rows))
+        for s in rows:
+            for mid in filter(None, (s.metron_series_id, s.metron_annual_series_id)):
+                try:
+                    _get_or_fetch_metron_issues(mid, db, force=True, block=True)
+                except RateLimitedError:
+                    logging.warning(
+                        "Metron rate limited while refreshing %s — skipping remaining series.",
+                        s.series_name,
+                    )
+                    return
+                except Exception as exc:
+                    logging.warning(
+                        "Could not refresh Metron cache for %s: %s", s.series_name, exc
+                    )
+
+
 def run_scraper():
     start_time = time.time()
+    _refresh_metron_caches()
     series_list = _load_series()
 
     for series_id, entry, monitored_regular, monitored_annual in series_list:

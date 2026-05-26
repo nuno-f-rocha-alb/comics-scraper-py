@@ -11,6 +11,7 @@ services:
       - METRON_PASS=your_metron_password
       - COMICVINE_API_KEY=your_comicvine_api_key
       - SCHEDULE_INTERVAL_HOURS=24
+      - LOG_LEVEL=INFO   # DEBUG to trace every Metron API request
     ports:
       - "8000:8000"
     volumes:

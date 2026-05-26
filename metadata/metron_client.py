@@ -1,13 +1,22 @@
+import itertools
 import time
 import logging
 import requests
 from config import METRON_BASE_URL, METRON_USER, METRON_PASS, HEADERS_APP
+
+log = logging.getLogger(__name__)
 
 _session = requests.Session()
 _session.auth = (METRON_USER, METRON_PASS)
 _session.headers.update(HEADERS_APP)
 
 _available_after: float = 0  # epoch time when the rate limit window resets
+_req_counter = itertools.count(1)
+
+
+def _short(url: str) -> str:
+    """Strip the Metron base prefix to keep DEBUG lines readable."""
+    return url[len(METRON_BASE_URL):] if url.startswith(METRON_BASE_URL) else url
 
 
 class RateLimitedError(Exception):
@@ -49,7 +58,19 @@ def get(url, *, block: bool = True, **params):
         logging.info(f"Metron in cooldown, waiting {rem:.0f}s")
         time.sleep(rem)
 
+    req_id = next(_req_counter)
+    short = _short(url)
+    log.debug("Metron GET #%d %s params=%s block=%s", req_id, short, params or {}, block)
+    t0 = time.monotonic()
     r = _session.get(url, params=params or None, timeout=15)
+    dt = (time.monotonic() - t0) * 1000
+    burst_rem = r.headers.get("X-RateLimit-Burst-Remaining")
+    burst_reset = r.headers.get("X-RateLimit-Burst-Reset")
+    log.debug(
+        "Metron GET #%d %s -> %d in %.0fms burst_remaining=%s burst_reset=%s",
+        req_id, short, r.status_code, dt, burst_rem, burst_reset,
+    )
+
     if r.status_code == 429:
         retry_after = int(r.headers.get("Retry-After", 60))
         wait = max(retry_after, 60)
@@ -58,6 +79,7 @@ def get(url, *, block: bool = True, **params):
         if not block:
             raise RateLimitedError(wait)
         time.sleep(wait)
+        log.debug("Metron GET #%d %s retry after 429", req_id, short)
         r = _session.get(url, params=params or None, timeout=15)
 
     if r.status_code != 304:
