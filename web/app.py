@@ -99,6 +99,108 @@ def _local_annual_issue_numbers(s: Series) -> set[str]:
     return _extract_nums(os.path.join(_series_dir(s), "Annuals"))
 
 
+# Series types from Metron that imply no further issues will be released.
+_ENDED_SERIES_TYPES = {"Cancelled Series", "One-Shot", "Single Issue"}
+# Series types where ending == having all issues (count-driven).
+_LIMITED_SERIES_TYPES = {"Limited Series", "Mini-Series"}
+
+
+def _is_series_ended(s: Series) -> bool:
+    """True if Metron's metadata says this series will get no further issues."""
+    if s.year_end:
+        return True
+    if s.series_type in _ENDED_SERIES_TYPES:
+        return True
+    if (
+        s.series_type in _LIMITED_SERIES_TYPES
+        and s.total_issues
+        and len(_local_issue_numbers(s)) >= s.total_issues
+    ):
+        return True
+    return False
+
+
+def _monitored_numbers(s: Series, db: Session) -> set[str] | None:
+    """Return the set of issue numbers the user is monitoring, or None if the
+    user has no explicit selection (i.e., everything in [issue_min, total_issues]
+    is implicitly monitored)."""
+    rows = (
+        db.query(MonitoredIssue)
+        .filter(MonitoredIssue.series_id == s.id, MonitoredIssue.issue_type == "regular")
+        .all()
+    )
+    if not rows:
+        return None
+    return {r.issue_number for r in rows}
+
+
+def _has_all_monitored_files(s: Series, db: Session) -> bool:
+    """True if every issue the user is monitoring has a local file."""
+    local = _local_issue_numbers(s)
+    explicit = _monitored_numbers(s, db)
+    if explicit is not None:
+        return explicit.issubset(local)
+    # No explicit monitoring: implicit set is [issue_min, total_issues].
+    if not s.total_issues:
+        return False
+    lo = s.issue_min or 1
+    expected = {str(n) for n in range(lo, s.total_issues + 1)}
+    return expected.issubset(local)
+
+
+def _recompute_pause_state(s: Series, db: Session) -> None:
+    """Auto-toggle s.enabled based on Metron status + monitored coverage.
+
+    Ended in Metron + every monitored issue downloaded → pause.
+    Ended in Metron but monitored issues still missing → resume.
+    Not ended → leave as-is (user controls the toggle).
+    """
+    if not _is_series_ended(s):
+        return
+    target_enabled = not _has_all_monitored_files(s, db)
+    if s.enabled != target_enabled:
+        s.enabled = target_enabled
+        log.info(
+            "Auto-%s '%s': ended in Metron, monitored files %s",
+            "paused" if not target_enabled else "resumed",
+            s.series_name,
+            "complete" if not target_enabled else "still missing",
+        )
+
+
+def _refresh_series_meta_from_metron(s: Series, db: Session) -> bool:
+    """Fetch /series/{id}/ from Metron and update cover, total_issues,
+    series_type, year_end, cv_id. Returns True if the call succeeded."""
+    if not s.metron_series_id:
+        return False
+    from config import METRON_BASE_URL
+    from metadata.metron_client import get as metron_get
+    try:
+        r = metron_get(f"{METRON_BASE_URL}/series/{s.metron_series_id}/")
+        data = r.json()
+    except Exception as exc:
+        log.warning("Could not refresh series meta for %s: %s", s.series_name, exc)
+        return False
+
+    img = data.get("image") or ""
+    new_cover = img if isinstance(img, str) and img else None
+    if new_cover:
+        s.cover_image_url = new_cover
+    if data.get("issue_count"):
+        s.total_issues = data["issue_count"]
+    st = data.get("series_type")
+    if isinstance(st, dict):
+        s.series_type = st.get("name") or s.series_type
+    elif isinstance(st, str):
+        s.series_type = st
+    ye = data.get("year_end")
+    if ye:
+        s.year_end = ye
+    if not s.comicvine_volume_id and data.get("cv_id"):
+        s.comicvine_volume_id = data["cv_id"]
+    return True
+
+
 def _find_issue_file(s: Series, issue_num: str) -> str | None:
     """Locate the local CBZ/CBR file for a given issue number, regular or annual."""
     target = str(int(float(issue_num))) if issue_num else None
@@ -695,37 +797,28 @@ def sync_covers(db: Session = Depends(get_db)):
             except Exception:
                 pass
 
-        # Phase 2: refresh cover + issue count from Metron detail
+        # Phase 2: refresh cover + issue count + ended status from Metron detail.
         # Runs whenever the series has a metron_series_id — the button is a
-        # manual "Refresh from Metron" so it must always re-sync, not just on
-        # series that are missing a cover.
+        # manual "Refresh from Metron" so it must always re-sync.
         if s.metron_series_id:
-            try:
-                r = metron_get(f"{METRON_BASE_URL}/series/{s.metron_series_id}/")
-                data = r.json()
-                img = data.get("image") or ""
-                new_cover = img if isinstance(img, str) and img else None
-                if new_cover:
-                    s.cover_image_url = new_cover
-                s.total_issues = data.get("issue_count") or s.total_issues
-                # Backfill CV ID if missing
-                if not s.comicvine_volume_id and data.get("cv_id"):
-                    s.comicvine_volume_id = data["cv_id"]
-                # Fallback: use first issue cover if series has no image
+            if _refresh_series_meta_from_metron(s, db):
+                # Fallback: use first issue cover if series still has no image
                 if not s.cover_image_url:
-                    r2 = metron_get(
-                        f"{METRON_BASE_URL}/issue/",
-                        series_id=s.metron_series_id,
-                        ordering="number",
-                        limit=1,
-                    )
-                    issues = r2.json().get("results", [])
-                    if issues:
-                        img2 = issues[0].get("image") or ""
-                        s.cover_image_url = img2 if isinstance(img2, str) and img2 else None
+                    try:
+                        r2 = metron_get(
+                            f"{METRON_BASE_URL}/issue/",
+                            series_id=s.metron_series_id,
+                            ordering="number",
+                            limit=1,
+                        )
+                        issues = r2.json().get("results", [])
+                        if issues:
+                            img2 = issues[0].get("image") or ""
+                            s.cover_image_url = img2 if isinstance(img2, str) and img2 else None
+                    except Exception:
+                        pass
+                _recompute_pause_state(s, db)
                 updated_covers += 1
-            except Exception:
-                pass
 
     db.commit()
     parts = []
@@ -802,6 +895,7 @@ def monitor_all(series_id: int, db: Session = Depends(get_db)):
         _insert_type(s.metron_series_id, "regular")
     if s.metron_annual_series_id:
         _insert_type(s.metron_annual_series_id, "annual")
+    _recompute_pause_state(s, db)
     db.commit()
     return Response(status_code=200, headers={"HX-Trigger": "refresh-issues"})
 
@@ -809,6 +903,9 @@ def monitor_all(series_id: int, db: Session = Depends(get_db)):
 @app.delete("/series/{series_id}/monitor-all")
 def unmonitor_all(series_id: int, db: Session = Depends(get_db)):
     db.query(MonitoredIssue).filter(MonitoredIssue.series_id == series_id).delete()
+    s = db.query(Series).filter(Series.id == series_id).first()
+    if s:
+        _recompute_pause_state(s, db)
     db.commit()
     return Response(status_code=200, headers={"HX-Trigger": "refresh-issues"})
 
@@ -841,12 +938,12 @@ def issue_monitor_toggle(
     )
     if existing:
         db.delete(existing)
-        db.commit()
         monitored = False
     else:
         db.add(MonitoredIssue(series_id=series_id, issue_number=norm, issue_type=issue_type))
-        db.commit()
         monitored = True
+    _recompute_pause_state(s, db)
+    db.commit()
 
     return HTMLResponse(_monitor_btn(series_id, number, monitored, issue_type))
 
@@ -1024,8 +1121,50 @@ def root():
 def series_list(request: Request, db: Session = Depends(get_db)):
     rows = db.query(Series).order_by(Series.publisher, Series.series_name).all()
     local_counts = {s.id: _count_local_issues(s) for s in rows}
+
+    # Active downloads by series_id — series that have a queued/downloading job
+    active_dl_ids = {
+        sid for (sid,) in db.query(DownloadJob.series_id)
+        .filter(DownloadJob.status.in_(["queued", "downloading"]))
+        .distinct()
+        .all()
+    }
+
+    # Per-series classification used for card border colour + footer stats.
+    statuses: dict[int, str] = {}
+    for s in rows:
+        ended = _is_series_ended(s)
+        complete = bool(s.total_issues) and local_counts[s.id] >= s.total_issues
+        if s.id in active_dl_ids:
+            statuses[s.id] = "downloading"
+        elif ended and complete:
+            statuses[s.id] = "ended-complete"
+        elif ended:
+            statuses[s.id] = "missing-unmonitored" if not s.enabled else "missing-monitored"
+        elif complete:
+            statuses[s.id] = "continuing-complete"
+        else:
+            statuses[s.id] = "missing-unmonitored" if not s.enabled else "missing-monitored"
+
+    stats = {
+        "series": len(rows),
+        "ended": sum(1 for s in rows if _is_series_ended(s)),
+        "continuing": sum(1 for s in rows if not _is_series_ended(s)),
+        "monitored": sum(1 for s in rows if s.enabled),
+        "unmonitored": sum(1 for s in rows if not s.enabled),
+        "issues_total": sum((s.total_issues or 0) for s in rows),
+        "files_total": sum(local_counts.values()),
+    }
+
     return templates.TemplateResponse(
-        "series_list.html", {"request": request, "series": rows, "local_counts": local_counts}
+        "series_list.html",
+        {
+            "request": request,
+            "series": rows,
+            "local_counts": local_counts,
+            "statuses": statuses,
+            "stats": stats,
+        },
     )
 
 
@@ -1140,6 +1279,112 @@ def series_delete(series_id: int, db: Session = Depends(get_db)):
         db.delete(s)
         db.commit()
     return Response(status_code=200)
+
+
+# ── Bulk actions ───────────────────────────────────────────────────────────────
+
+
+@app.post("/api/series/bulk/toggle")
+def bulk_toggle(payload: dict, db: Session = Depends(get_db)):
+    """payload = {ids: [int], action: 'pause'|'resume'}"""
+    ids = payload.get("ids") or []
+    action = payload.get("action")
+    if action not in ("pause", "resume") or not ids:
+        raise HTTPException(status_code=400, detail="Invalid payload")
+    new_state = (action == "resume")
+    n = (
+        db.query(Series).filter(Series.id.in_(ids))
+        .update({Series.enabled: new_state}, synchronize_session=False)
+    )
+    db.commit()
+    return {"updated": n}
+
+
+@app.post("/api/series/bulk/monitor")
+def bulk_monitor(payload: dict, db: Session = Depends(get_db)):
+    """payload = {ids: [int], mode: 'all'|'none'|'future'|'missing'}.
+
+    all     → mark every cached issue as monitored
+    none    → clear all monitoring rows for these series
+    future  → monitor issues with store_date >= today
+    missing → monitor issues that exist in Metron but not locally
+    """
+    ids = payload.get("ids") or []
+    mode = payload.get("mode")
+    if mode not in ("all", "none", "future", "missing") or not ids:
+        raise HTTPException(status_code=400, detail="Invalid payload")
+
+    rows = db.query(Series).filter(Series.id.in_(ids)).all()
+    today_iso = date.today().isoformat()
+
+    for s in rows:
+        # Always clear first — every mode is an absolute statement.
+        db.query(MonitoredIssue).filter(MonitoredIssue.series_id == s.id).delete()
+        if mode == "none":
+            continue
+        for mid, itype in (
+            (s.metron_series_id, "regular"),
+            (s.metron_annual_series_id, "annual"),
+        ):
+            if not mid:
+                continue
+            cached = (
+                db.query(MetronIssueCache)
+                .filter(MetronIssueCache.series_id == mid)
+                .all()
+            )
+            local_nums = (
+                _local_annual_issue_numbers(s) if itype == "annual"
+                else _local_issue_numbers(s)
+            )
+            for c in cached:
+                if not c.number:
+                    continue
+                try:
+                    norm = str(int(float(c.number)))
+                except (ValueError, TypeError):
+                    norm = c.number
+                if mode == "future":
+                    if not c.store_date or c.store_date < today_iso:
+                        continue
+                elif mode == "missing":
+                    if norm in local_nums:
+                        continue
+                db.add(MonitoredIssue(series_id=s.id, issue_number=norm, issue_type=itype))
+        _recompute_pause_state(s, db)
+    db.commit()
+    return {"updated": len(rows)}
+
+
+@app.post("/api/series/bulk/refresh")
+def bulk_refresh(payload: dict, db: Session = Depends(get_db)):
+    """Refresh cover + total_issues + ended status from Metron for each id."""
+    ids = payload.get("ids") or []
+    if not ids:
+        raise HTTPException(status_code=400, detail="Invalid payload")
+    rows = (
+        db.query(Series)
+        .filter(Series.id.in_(ids))
+        .filter(Series.metron_series_id.isnot(None))
+        .all()
+    )
+    refreshed = 0
+    for s in rows:
+        if _refresh_series_meta_from_metron(s, db):
+            _recompute_pause_state(s, db)
+            refreshed += 1
+    db.commit()
+    return {"updated": refreshed, "skipped": len(ids) - refreshed}
+
+
+@app.post("/api/series/bulk/delete")
+def bulk_delete(payload: dict, db: Session = Depends(get_db)):
+    ids = payload.get("ids") or []
+    if not ids:
+        raise HTTPException(status_code=400, detail="Invalid payload")
+    n = db.query(Series).filter(Series.id.in_(ids)).delete(synchronize_session=False)
+    db.commit()
+    return {"deleted": n}
 
 
 @app.get("/series/{series_id}", response_class=HTMLResponse)

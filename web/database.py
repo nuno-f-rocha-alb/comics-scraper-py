@@ -30,6 +30,10 @@ def migrate_columns():
             conn.execute(text("UPDATE series SET issue_min = 1 WHERE issue_min IS NULL"))
         if "issue_max" not in cols:
             conn.execute(text("ALTER TABLE series ADD COLUMN issue_max INTEGER"))
+        if "series_type" not in cols:
+            conn.execute(text("ALTER TABLE series ADD COLUMN series_type TEXT"))
+        if "year_end" not in cols:
+            conn.execute(text("ALTER TABLE series ADD COLUMN year_end INTEGER"))
 
         # Recreate monitored_issues to add issue_type + update unique constraint
         tables = inspector.get_table_names()

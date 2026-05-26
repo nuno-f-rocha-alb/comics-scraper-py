@@ -36,6 +36,11 @@ class Series(Base):
     cover_image_url: Mapped[str | None] = mapped_column(String, nullable=True)
     total_issues: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
+    # Metron series classification — used to detect ended/concluded series so
+    # the scraper can stop searching for new issues.
+    series_type: Mapped[str | None] = mapped_column(String, nullable=True)
+    year_end: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=lambda: datetime.now(timezone.utc), nullable=False

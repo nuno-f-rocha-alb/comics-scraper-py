@@ -45,7 +45,11 @@ def _refresh_metron_caches() -> None:
     current. Without this, a series that gains a new issue on Metron would be
     invisible to the scraper until the user manually clicks Refresh in the UI.
     """
-    from web.app import _get_or_fetch_metron_issues
+    from web.app import (
+        _get_or_fetch_metron_issues,
+        _recompute_pause_state,
+        _refresh_series_meta_from_metron,
+    )
     from web.database import SessionLocal
     from web.models import Series
     from metadata.metron_client import RateLimitedError
@@ -61,13 +65,20 @@ def _refresh_metron_caches() -> None:
             return
         logging.info("Refreshing Metron caches for %d series before scrape…", len(rows))
         for s in rows:
+            try:
+                # Detail call updates total_issues + series_type + year_end so
+                # we can detect ended series and auto-pause them.
+                _refresh_series_meta_from_metron(s, db)
+            except RateLimitedError:
+                logging.warning("Metron rate limited — skipping remaining series.")
+                db.commit()
+                return
+
             for mid in filter(None, (s.metron_series_id, s.metron_annual_series_id)):
                 try:
-                    # skip_titles=True keeps the burst-rate-limit footprint to
-                    # 1 call per series. Per-issue titles are fetched lazily
-                    # when the user opens the series page in the UI (which
-                    # only calls the detail endpoint for issues without a
-                    # cached title — see _get_or_fetch_metron_issues).
+                    # skip_titles=True keeps the burst-rate-limit footprint
+                    # to 1 call per series. Titles are fetched lazily by the
+                    # UI when the user opens a series page.
                     _get_or_fetch_metron_issues(
                         mid, db, force=True, block=True, skip_titles=True,
                     )
@@ -76,11 +87,15 @@ def _refresh_metron_caches() -> None:
                         "Metron rate limited while refreshing %s — skipping remaining series.",
                         s.series_name,
                     )
+                    db.commit()
                     return
                 except Exception as exc:
                     logging.warning(
                         "Could not refresh Metron cache for %s: %s", s.series_name, exc
                     )
+
+            _recompute_pause_state(s, db)
+        db.commit()
 
 
 def run_scraper():
