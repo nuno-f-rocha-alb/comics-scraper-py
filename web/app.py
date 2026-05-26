@@ -9,7 +9,7 @@ from urllib.parse import quote
 log = logging.getLogger(__name__)
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Query, Request, Response
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
@@ -1651,6 +1651,15 @@ def logs_files_partial(request: Request):
         "partials/log_files.html",
         {"request": request, "files": _log_files()},
     )
+
+
+@app.get("/logs/{filename}/download")
+def log_download(filename: str):
+    safe = os.path.basename(filename)
+    path = os.path.join(LOG_DIR, safe)
+    if not os.path.isfile(path):
+        raise HTTPException(status_code=404)
+    return FileResponse(path, media_type="text/plain", filename=safe)
 
 
 @app.delete("/logs/{filename}", response_class=HTMLResponse)

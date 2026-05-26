@@ -11,6 +11,12 @@
         {{ (f.size / 1024) | round(1) }} KB
       </div>
     </div>
+    <a class="btn btn-link btn-sm p-0 text-muted flex-shrink-0"
+       href="/logs/{{ f.name }}/download"
+       onclick="event.stopPropagation();"
+       title="Download">
+      <i class="bi bi-download" style="font-size:0.75rem;"></i>
+    </a>
     <button class="btn btn-link btn-sm p-0 text-muted flex-shrink-0"
             hx-delete="/logs/{{ f.name }}"
             hx-target="#log-files-list"

@@ -114,6 +114,20 @@
         <span class="ms-auto d-flex gap-2 align-items-center">
           <span class="text-muted small" id="stream-count"></span>
           <span class="text-muted small" id="stream-time"></span>
+          <button id="btn-copy"
+                  class="btn btn-sm btn-outline-secondary py-0 px-2"
+                  style="font-size:0.72rem;"
+                  onclick="copyVisibleLog(this)"
+                  title="Copy visible lines">
+            <i class="bi bi-clipboard me-1"></i>Copy
+          </button>
+          <a id="btn-download"
+             class="btn btn-sm btn-outline-secondary py-0 px-2"
+             style="font-size:0.72rem;"
+             href="/logs/{{ current_name }}/download"
+             title="Download this log file">
+            <i class="bi bi-download me-1"></i>Download
+          </a>
           <button id="btn-autoscroll"
                   class="btn btn-sm btn-outline-secondary py-0 px-2 active"
                   style="font-size:0.72rem;"
@@ -201,6 +215,8 @@
 
   function switchLog(filename) {
     document.getElementById('stream-filename').textContent = filename;
+    const dl = document.getElementById('btn-download');
+    if (dl) dl.href = `/logs/${encodeURIComponent(filename)}/download`;
     updateStream(filename);
   }
 
@@ -214,6 +230,54 @@
     term.setAttribute('hx-get', url);
     htmx.process(term);
     htmx.trigger(term, 'load');
+  }
+
+  /* Hold the live refresh while the user has text selected inside the
+     terminal — otherwise the 2s htmx swap wipes the selection mid-copy.
+     A separate flag from _logPaused so the toolbar Pause button is not
+     visually toggled by passive selection. */
+  window._logSelectionHold = false;
+  document.addEventListener('selectionchange', () => {
+    const term = document.getElementById('log-terminal');
+    if (!term) return;
+    const sel = window.getSelection();
+    const hasSel = sel && sel.toString().length > 0
+      && term.contains(sel.anchorNode) && term.contains(sel.focusNode);
+    if (hasSel !== window._logSelectionHold) {
+      window._logSelectionHold = hasSel;
+      // Re-evaluate the hx-trigger guard via an attribute flip so htmx
+      // notices on the next tick. The [!window._logPaused] condition is
+      // re-checked on every trigger evaluation, so we just OR it.
+    }
+  });
+  // Patch the hx-trigger guard by intercepting htmx:trigger and skipping
+  // the load when a selection is held.
+  document.body.addEventListener('htmx:beforeRequest', (evt) => {
+    if (evt.detail.elt && evt.detail.elt.id === 'log-terminal'
+        && window._logSelectionHold) {
+      evt.preventDefault();
+    }
+  });
+
+  async function copyVisibleLog(btn) {
+    const term = document.getElementById('log-terminal');
+    if (!term) return;
+    const sel = window.getSelection();
+    const text = (sel && sel.toString().length > 0
+      && term.contains(sel.anchorNode))
+      ? sel.toString()
+      : term.innerText;
+    try {
+      await navigator.clipboard.writeText(text);
+      const orig = btn.innerHTML;
+      btn.innerHTML = '<i class="bi bi-check2 me-1"></i>Copied';
+      setTimeout(() => { btn.innerHTML = orig; }, 1200);
+    } catch (e) {
+      btn.innerHTML = '<i class="bi bi-x me-1"></i>Failed';
+      setTimeout(() => {
+        btn.innerHTML = '<i class="bi bi-clipboard me-1"></i>Copy';
+      }, 1500);
+    }
   }
 </script>
 
