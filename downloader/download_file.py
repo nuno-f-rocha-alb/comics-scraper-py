@@ -10,11 +10,14 @@ class DownloadCancelled(Exception):
     """Raised when an in-flight download is cancelled by the user."""
 
 
-def download_file(url, save_dir, series_name, issue_number, volume_year, is_cancelled=None):
+def download_file(url, save_dir, series_name, issue_number, volume_year,
+                  is_cancelled=None, on_progress=None):
     """Downloads a file from the final URL and renames it based on the series name and issue number.
 
     is_cancelled: optional callable returning True to abort the download mid-stream.
-    Checked every ~64 chunks (≈0.5MB) so the cost is negligible.
+    on_progress: optional callback (bytes_written, total_size) called every
+                 ~64 chunks (~0.5MB) — surfaces progress to the UI in real time.
+    Both checked at the same cadence so the per-chunk overhead is negligible.
     """
     parsed_url = urlparse(url)
     file_name = os.path.basename(parsed_url.path)
@@ -41,8 +44,14 @@ def download_file(url, save_dir, series_name, issue_number, volume_year, is_canc
                     bytes_written += len(chunk)
                     chunks_seen += 1
                     pbar.update(len(chunk))
-                    if is_cancelled and chunks_seen % 64 == 0 and is_cancelled():
-                        raise DownloadCancelled("cancelled mid-download")
+                    if chunks_seen % 64 == 0:
+                        if is_cancelled and is_cancelled():
+                            raise DownloadCancelled("cancelled mid-download")
+                        if on_progress:
+                            try:
+                                on_progress(bytes_written, total_size)
+                            except Exception:
+                                pass  # progress reporting must never break a download
         download_end_time = time.time()
 
         if total_size and bytes_written != total_size:

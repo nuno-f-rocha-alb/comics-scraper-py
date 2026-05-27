@@ -1,3 +1,19 @@
+{% macro fmt_bytes(n) -%}
+{%- if n is none or n <= 0 -%}–{%- elif n < 1024 -%}{{ n }} B
+{%- elif n < 1048576 -%}{{ (n / 1024) | round(1) }} KB
+{%- elif n < 1073741824 -%}{{ (n / 1048576) | round(1) }} MB
+{%- else -%}{{ (n / 1073741824) | round(2) }} GB
+{%- endif %}
+{%- endmacro -%}
+
+{% macro fmt_eta(seconds) -%}
+{%- if seconds is none or seconds <= 0 -%}–
+{%- elif seconds < 60 -%}{{ seconds | int }}s
+{%- elif seconds < 3600 -%}{{ (seconds // 60) | int }}m {{ (seconds % 60) | int }}s
+{%- else -%}{{ (seconds // 3600) | int }}h {{ ((seconds % 3600) // 60) | int }}m
+{%- endif %}
+{%- endmacro -%}
+
 {% if jobs %}
 <div class="card">
   <div class="card-header py-3 d-flex align-items-center gap-2">
@@ -12,11 +28,27 @@
       <tbody>
         {% for job in jobs %}
         {% set s = series_map.get(job.series_id) %}
+        {% set p = progress_map.get(job.id) %}
+        {% set pct = ((p.bytes / p.total * 100) | round(1)) if p and p.total else 0 %}
+        {% set eta = ((p.total - p.bytes) / p.rate_bps) if p and p.rate_bps > 0 and p.total else None %}
         <tr>
-          <td class="ps-4 small fw-semibold">
+          <td class="ps-4 small fw-semibold" style="width:180px;">
             {% if s %}{{ s.series_name }}{% else %}#{{ job.series_id }}{% endif %}
           </td>
-          <td class="small text-muted">{{ job.search_term }}</td>
+          <td>
+            <div class="small text-muted text-truncate" style="max-width:380px;">{{ job.search_term }}</div>
+            {% if job.status == 'downloading' and p %}
+            <div class="progress mt-1" style="height:5px; border-radius:3px;">
+              <div class="progress-bar" style="width:{{ pct }}%;background:#0d6efd;"></div>
+            </div>
+            <div class="d-flex gap-3 mt-1 text-muted" style="font-size:0.7rem;">
+              <span>{{ fmt_bytes(p.bytes) }}{% if p.total %} / {{ fmt_bytes(p.total) }}{% endif %}</span>
+              <span>{{ pct }}%</span>
+              {% if p.rate_bps > 0 %}<span>{{ fmt_bytes(p.rate_bps) }}/s</span>{% endif %}
+              {% if eta %}<span>ETA {{ fmt_eta(eta) }}</span>{% endif %}
+            </div>
+            {% endif %}
+          </td>
           <td style="width:140px;">
             {% if job.status == 'downloading' %}
             <span class="badge" style="background:rgba(13,110,253,0.12);color:#0d6efd;">

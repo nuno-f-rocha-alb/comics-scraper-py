@@ -11,6 +11,7 @@ import os
 import queue
 import re
 import threading
+import time
 from datetime import datetime, timezone
 
 _q: queue.Queue = queue.Queue()
@@ -21,6 +22,51 @@ _thread: threading.Thread | None = None
 # download_file's chunk loop.
 _cancel_requested: set[int] = set()
 _cancel_lock = threading.Lock()
+
+# Live download progress, in-memory only. Cleared when a job finishes (any
+# status) or when the process restarts (in which case the job is also
+# re-enqueued from scratch by start()).
+#   job_id -> {bytes, total, rate_bps, started_at, last_at, last_bytes}
+_progress: dict[int, dict] = {}
+_progress_lock = threading.Lock()
+
+
+def _set_progress(job_id: int, bytes_written: int, total_size: int) -> None:
+    """Record current byte counts for a job and roll a smoothed rate."""
+    now = time.time()
+    with _progress_lock:
+        existing = _progress.get(job_id)
+        if existing is None:
+            _progress[job_id] = {
+                "bytes": bytes_written,
+                "total": total_size,
+                "rate_bps": 0.0,
+                "started_at": now,
+                "last_at": now,
+                "last_bytes": bytes_written,
+            }
+            return
+        dt = max(now - existing["last_at"], 1e-3)
+        db = max(bytes_written - existing["last_bytes"], 0)
+        instant = db / dt
+        # Exponential moving average so the displayed speed doesn't bounce
+        # around the way the raw chunk-to-chunk delta would.
+        existing["rate_bps"] = 0.6 * existing["rate_bps"] + 0.4 * instant
+        existing["bytes"] = bytes_written
+        existing["total"] = total_size
+        existing["last_at"] = now
+        existing["last_bytes"] = bytes_written
+
+
+def get_progress(job_id: int) -> dict | None:
+    with _progress_lock:
+        p = _progress.get(job_id)
+        return dict(p) if p else None
+
+
+def _clear_progress(job_id: int) -> None:
+    with _progress_lock:
+        _progress.pop(job_id, None)
 
 
 def enqueue(job_id: int) -> None:
@@ -44,7 +90,7 @@ def _clear_cancel(job_id: int) -> None:
         _cancel_requested.discard(job_id)
 
 
-def _download_issue(series, issue_number: str, is_cancelled=None) -> str:
+def _download_issue(series, issue_number: str, is_cancelled=None, on_progress=None) -> str:
     import requests
     from bs4 import BeautifulSoup
     from config import BASE_SEARCH_URL, HEADERS
@@ -134,6 +180,7 @@ def _download_issue(series, issue_number: str, is_cancelled=None) -> str:
     save_path = download_file(
         download_url, local_dir, entry[1], formatted, entry[2],
         is_cancelled=is_cancelled,
+        on_progress=on_progress,
     )
     process_downloaded_comic(entry, save_path, issue_number)
 
@@ -165,7 +212,11 @@ def _process(job_id: int) -> None:
             s = db.get(Series, job.series_id)
             if not s:
                 raise Exception("Series not found in DB")
-            filename = _download_issue(s, job.issue_number, is_cancelled=lambda: _is_cancelled(job_id))
+            filename = _download_issue(
+                s, job.issue_number,
+                is_cancelled=lambda: _is_cancelled(job_id),
+                on_progress=lambda b, t: _set_progress(job_id, b, t),
+            )
             job.status = "done"
             job.filename = filename
         except DownloadCancelled as exc:
@@ -177,6 +228,7 @@ def _process(job_id: int) -> None:
             job.error = str(exc)
         finally:
             _clear_cancel(job_id)
+            _clear_progress(job_id)
             job.finished_at = datetime.now(timezone.utc)
             db.commit()
 

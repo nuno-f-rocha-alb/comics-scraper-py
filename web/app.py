@@ -1029,6 +1029,7 @@ def downloads_page(request: Request, db: Session = Depends(get_db)):
 
 @app.get("/downloads/active", response_class=HTMLResponse)
 def downloads_active(request: Request, db: Session = Depends(get_db)):
+    from web.worker import get_progress
     active = (
         db.query(DownloadJob)
         .filter(DownloadJob.status.in_(["queued", "downloading"]))
@@ -1036,9 +1037,15 @@ def downloads_active(request: Request, db: Session = Depends(get_db)):
         .all()
     )
     series_map = {s.id: s for s in db.query(Series).all()}
+    progress_map = {j.id: get_progress(j.id) for j in active}
     return templates.TemplateResponse(
         "partials/downloads_active.html",
-        {"request": request, "jobs": active, "series_map": series_map},
+        {
+            "request": request,
+            "jobs": active,
+            "series_map": series_map,
+            "progress_map": progress_map,
+        },
     )
 
 
