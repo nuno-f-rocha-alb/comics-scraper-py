@@ -1142,21 +1142,70 @@ def series_list(request: Request, db: Session = Depends(get_db)):
         .all()
     }
 
+    # Bulk-load cached Metron issues so we can tell "missing because past" apart
+    # from "missing because the issue hasn't shipped yet". A series whose only
+    # gap is a future store_date isn't actually behind — there's nothing to
+    # download yet — so it should read as continuing-complete (blue), not
+    # missing (red).
+    metron_to_series: dict[int, list[tuple[int, str]]] = {}
+    for s in rows:
+        if s.metron_series_id:
+            metron_to_series.setdefault(s.metron_series_id, []).append((s.id, "regular"))
+        if s.metron_annual_series_id:
+            metron_to_series.setdefault(s.metron_annual_series_id, []).append((s.id, "annual"))
+
+    cached_issues_by_metron: dict[int, list] = {}
+    if metron_to_series:
+        for c in (
+            db.query(MetronIssueCache)
+            .filter(MetronIssueCache.series_id.in_(metron_to_series.keys()))
+            .all()
+        ):
+            cached_issues_by_metron.setdefault(c.series_id, []).append(c)
+
+    today_iso = date.today().isoformat()
+
+    def has_missing_past(s: Series) -> bool:
+        """True if any issue with store_date <= today (or unknown) is missing
+        from the local folder. Future-only gaps don't count."""
+        local_reg = _local_issue_numbers(s)
+        local_ann = _local_annual_issue_numbers(s) if s.metron_annual_series_id else set()
+        for mid, kind in (
+            (s.metron_series_id, "regular"),
+            (s.metron_annual_series_id, "annual"),
+        ):
+            if not mid:
+                continue
+            local_set = local_ann if kind == "annual" else local_reg
+            for c in cached_issues_by_metron.get(mid, []):
+                if not c.number:
+                    continue
+                try:
+                    num = str(int(float(c.number)))
+                except (ValueError, TypeError):
+                    num = c.number
+                if num in local_set:
+                    continue
+                # Missing — was it supposed to be out by now?
+                # No store_date → assume past (Metron often backfills dates).
+                if not c.store_date or c.store_date <= today_iso:
+                    return True
+        return False
+
     # Per-series classification used for card border colour + footer stats.
     statuses: dict[int, str] = {}
     for s in rows:
         ended = _is_series_ended(s)
-        complete = bool(s.total_issues) and local_counts[s.id] >= s.total_issues
+        missing_past = has_missing_past(s)
         if s.id in active_dl_ids:
             statuses[s.id] = "downloading"
-        elif ended and complete:
+        elif ended and not missing_past:
             statuses[s.id] = "ended-complete"
-        elif ended:
+        elif missing_past:
             statuses[s.id] = "missing-unmonitored" if not s.enabled else "missing-monitored"
-        elif complete:
-            statuses[s.id] = "continuing-complete"
         else:
-            statuses[s.id] = "missing-unmonitored" if not s.enabled else "missing-monitored"
+            # Either everything cached is local, or what's missing hasn't shipped yet.
+            statuses[s.id] = "continuing-complete"
 
     stats = {
         "series": len(rows),
