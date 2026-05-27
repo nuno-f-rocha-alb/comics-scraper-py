@@ -1051,10 +1051,32 @@ def download_delete(job_id: int, db: Session = Depends(get_db)):
     return Response(status_code=200)
 
 
+@app.post("/downloads/{job_id}/cancel")
+def download_cancel(job_id: int, db: Session = Depends(get_db)):
+    """Cancel a queued or in-flight job.
+
+    Queued: flip status to 'cancelled' directly; worker will skip it on pickup.
+    Downloading: request cancellation — the worker checks between HTTP calls
+    and inside the chunk loop and will abort within ~0.5MB.
+    """
+    from web.worker import request_cancel
+    job = db.get(DownloadJob, job_id)
+    if not job:
+        raise HTTPException(status_code=404)
+    if job.status == "queued":
+        job.status = "cancelled"
+        job.finished_at = datetime.now(timezone.utc)
+        db.commit()
+    elif job.status == "downloading":
+        request_cancel(job_id)
+    # done / failed / cancelled — nothing to do
+    return Response(status_code=200, headers={"HX-Trigger": "refresh-downloads"})
+
+
 @app.delete("/downloads", response_class=HTMLResponse)
 def downloads_clear(db: Session = Depends(get_db)):
     db.query(DownloadJob).filter(
-        DownloadJob.status.in_(["done", "failed"])
+        DownloadJob.status.in_(["done", "failed", "cancelled"])
     ).delete()
     db.commit()
     return HTMLResponse(

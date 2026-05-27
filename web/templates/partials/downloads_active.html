@@ -28,6 +28,15 @@
             </span>
             {% endif %}
           </td>
+          <td style="width:80px;" class="text-end pe-3">
+            <button class="btn btn-sm btn-link text-danger p-0"
+                    hx-post="/downloads/{{ job.id }}/cancel"
+                    hx-swap="none"
+                    hx-confirm="Cancel this download?"
+                    title="Cancel">
+              <i class="bi bi-x-circle"></i> Cancel
+            </button>
+          </td>
         </tr>
         {% endfor %}
       </tbody>

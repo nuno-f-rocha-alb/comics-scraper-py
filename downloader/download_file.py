@@ -6,8 +6,16 @@ from tqdm_loggable.auto import tqdm
 from util import sanitize_filename
 
 
-def download_file(url, save_dir, series_name, issue_number, volume_year):
-    """Downloads a file from the final URL and renames it based on the series name and issue number."""
+class DownloadCancelled(Exception):
+    """Raised when an in-flight download is cancelled by the user."""
+
+
+def download_file(url, save_dir, series_name, issue_number, volume_year, is_cancelled=None):
+    """Downloads a file from the final URL and renames it based on the series name and issue number.
+
+    is_cancelled: optional callable returning True to abort the download mid-stream.
+    Checked every ~64 chunks (≈0.5MB) so the cost is negligible.
+    """
     parsed_url = urlparse(url)
     file_name = os.path.basename(parsed_url.path)
     file_extension = os.path.splitext(file_name)[1]  # Get the file extension
@@ -22,6 +30,7 @@ def download_file(url, save_dir, series_name, issue_number, volume_year):
     part_path = save_path + ".part"
 
     bytes_written = 0
+    chunks_seen = 0
     download_start_time = time.time()
     try:
         with open(part_path, 'wb') as f:
@@ -30,7 +39,10 @@ def download_file(url, save_dir, series_name, issue_number, volume_year):
                 for chunk in response.iter_content(chunk_size=8192):
                     f.write(chunk)
                     bytes_written += len(chunk)
+                    chunks_seen += 1
                     pbar.update(len(chunk))
+                    if is_cancelled and chunks_seen % 64 == 0 and is_cancelled():
+                        raise DownloadCancelled("cancelled mid-download")
         download_end_time = time.time()
 
         if total_size and bytes_written != total_size:

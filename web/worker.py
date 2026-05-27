@@ -16,16 +16,39 @@ from datetime import datetime, timezone
 _q: queue.Queue = queue.Queue()
 _thread: threading.Thread | None = None
 
+# Job IDs the user has asked to cancel while the worker is mid-flight.
+# Checked at the start of _process (before HTTP work begins) and inside
+# download_file's chunk loop.
+_cancel_requested: set[int] = set()
+_cancel_lock = threading.Lock()
+
 
 def enqueue(job_id: int) -> None:
     _q.put(job_id)
 
 
-def _download_issue(series, issue_number: str) -> str:
+def request_cancel(job_id: int) -> None:
+    """Mark a job to abort the next time the worker checks (between HTTP calls
+    or every ~0.5MB of file download). Safe to call repeatedly."""
+    with _cancel_lock:
+        _cancel_requested.add(job_id)
+
+
+def _is_cancelled(job_id: int) -> bool:
+    with _cancel_lock:
+        return job_id in _cancel_requested
+
+
+def _clear_cancel(job_id: int) -> None:
+    with _cancel_lock:
+        _cancel_requested.discard(job_id)
+
+
+def _download_issue(series, issue_number: str, is_cancelled=None) -> str:
     import requests
     from bs4 import BeautifulSoup
     from config import BASE_SEARCH_URL, HEADERS
-    from downloader.download_file import download_file
+    from downloader.download_file import download_file, DownloadCancelled
     from downloader.get_comic_download_url import get_comic_download_url
     from downloader.process_downloaded_comic import process_downloaded_comic
     from util import create_series_directory, normalize_title
@@ -76,6 +99,9 @@ def _download_issue(series, issue_number: str) -> str:
     if resp.status_code == 200 and "No Results Found" not in resp.text:
         comic_url, comic_title = _find_in_page(resp.text)
 
+    if is_cancelled and is_cancelled():
+        raise DownloadCancelled("cancelled before broader search")
+
     # Broader fallback: series name only
     if not comic_url:
         resp2 = requests.get(
@@ -90,6 +116,9 @@ def _download_issue(series, issue_number: str) -> str:
             f"Issue #{issue_number} of '{entry[1]}' not found on getcomics.org"
         )
 
+    if is_cancelled and is_cancelled():
+        raise DownloadCancelled("cancelled before resolving download URL")
+
     logging.info("Download worker: found '%s', fetching download link…", comic_title)
 
     download_url = get_comic_download_url(comic_url)
@@ -102,7 +131,10 @@ def _download_issue(series, issue_number: str) -> str:
         formatted = issue_number
 
     local_dir = create_series_directory(entry)
-    save_path = download_file(download_url, local_dir, entry[1], formatted, entry[2])
+    save_path = download_file(
+        download_url, local_dir, entry[1], formatted, entry[2],
+        is_cancelled=is_cancelled,
+    )
     process_downloaded_comic(entry, save_path, issue_number)
 
     return os.path.basename(save_path)
@@ -111,10 +143,19 @@ def _download_issue(series, issue_number: str) -> str:
 def _process(job_id: int) -> None:
     from web.database import SessionLocal
     from web.models import DownloadJob, Series
+    from downloader.download_file import DownloadCancelled
 
     with SessionLocal() as db:
         job = db.get(DownloadJob, job_id)
         if not job:
+            return
+
+        # Cancelled while still in the queue — drop it without touching the network.
+        if job.status == "cancelled" or _is_cancelled(job_id):
+            job.status = "cancelled"
+            job.finished_at = datetime.now(timezone.utc)
+            db.commit()
+            _clear_cancel(job_id)
             return
 
         job.status = "downloading"
@@ -124,14 +165,18 @@ def _process(job_id: int) -> None:
             s = db.get(Series, job.series_id)
             if not s:
                 raise Exception("Series not found in DB")
-            filename = _download_issue(s, job.issue_number)
+            filename = _download_issue(s, job.issue_number, is_cancelled=lambda: _is_cancelled(job_id))
             job.status = "done"
             job.filename = filename
+        except DownloadCancelled as exc:
+            logging.info("Download job %d cancelled: %s", job_id, exc)
+            job.status = "cancelled"
         except Exception as exc:
             logging.error("Download job %d failed: %s", job_id, exc)
             job.status = "failed"
             job.error = str(exc)
         finally:
+            _clear_cancel(job_id)
             job.finished_at = datetime.now(timezone.utc)
             db.commit()
 

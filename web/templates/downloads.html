@@ -107,6 +107,10 @@
             <span class="badge" style="background:rgba(220,53,69,0.12);color:#dc3545;">
               <i class="bi bi-x-circle-fill me-1"></i>Failed
             </span>
+            {% elif job.status == 'cancelled' %}
+            <span class="badge" style="background:rgba(108,117,125,0.18);color:#9ca3af;">
+              <i class="bi bi-slash-circle me-1"></i>Cancelled
+            </span>
             {% elif job.status == 'downloading' %}
             <span class="badge" style="background:rgba(13,110,253,0.12);color:#0d6efd;">
               <i class="bi bi-arrow-down-circle-fill me-1"></i>Downloading
@@ -119,7 +123,7 @@
           </td>
           <td class="small text-muted">{{ job.created_at.strftime('%b %d, %H:%M') }}</td>
           <td class="pe-3 text-end">
-            {% if job.status in ('done', 'failed') %}
+            {% if job.status in ('done', 'failed', 'cancelled') %}
             <button class="btn btn-link btn-sm text-muted p-0"
                     style="font-size:0.8rem;"
                     hx-delete="/downloads/{{ job.id }}"
