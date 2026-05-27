@@ -2078,6 +2078,117 @@ def calendar_page(
     )
 
 
+# ── Releases (RSS feed) ────────────────────────────────────────────────────────
+
+
+def _match_feed_entries(entries, db: Session) -> list[dict]:
+    """Map RSS feed entries to monitored series + tag them with current state.
+
+    For each entry whose title parses as 'Series #N (YYYY)', try to find a
+    series whose normalized name matches. Returns a list ordered by feed
+    pub_date desc, each item describing whether we already have it locally
+    or have a job in flight.
+    """
+    from util import normalize_title
+
+    series_rows = db.query(Series).filter(Series.enabled == True).all()  # noqa: E712
+    # Index by normalized name for O(1) match.
+    by_norm: dict[str, Series] = {}
+    for s in series_rows:
+        # Same year-stripping the scraper does — series_name may carry "(YYYY)"
+        # for disambiguation, getcomics titles don't.
+        norm = re.sub(
+            r"\s*\(\d{4}\)\s*$", "", normalize_title(s.series_name)
+        ).strip()
+        if norm:
+            by_norm[norm] = s
+
+    # Precompute local file numbers per series (only once each).
+    local_cache: dict[int, set[str]] = {}
+
+    # In-flight downloads per (series_id, issue_number).
+    in_flight: set[tuple[int, str]] = set()
+    for j in (
+        db.query(DownloadJob)
+        .filter(DownloadJob.status.in_(["queued", "downloading"]))
+        .all()
+    ):
+        try:
+            n = str(int(float(j.issue_number)))
+        except (ValueError, TypeError):
+            n = j.issue_number or ""
+        in_flight.add((j.series_id, n))
+
+    results: list[dict] = []
+    for e in entries:
+        if not e.series_name:
+            continue
+        norm = normalize_title(e.series_name)
+        s = by_norm.get(norm)
+        if not s:
+            continue
+        try:
+            num_norm = str(int(float(e.issue_number)))
+        except (ValueError, TypeError):
+            num_norm = e.issue_number or ""
+
+        if s.id not in local_cache:
+            local_cache[s.id] = _local_issue_numbers(s)
+        downloaded = num_norm in local_cache[s.id]
+        queued = (s.id, num_norm) in in_flight
+
+        results.append({
+            "entry": e,
+            "series": s,
+            "issue_number": num_norm,
+            "downloaded": downloaded,
+            "queued": queued,
+        })
+
+    return results
+
+
+@app.get("/releases", response_class=HTMLResponse)
+def releases_page(request: Request, db: Session = Depends(get_db)):
+    from comic_search.rss_feed import fetch_feed
+    error = None
+    entries = []
+    matches: list[dict] = []
+    try:
+        entries = fetch_feed()
+        matches = _match_feed_entries(entries, db)
+    except Exception as exc:
+        log.warning("Failed to fetch RSS feed: %s", exc)
+        error = str(exc)
+
+    return templates.TemplateResponse(
+        "releases.html",
+        {
+            "request": request,
+            "matches": matches,
+            "feed_size": len(entries),
+            "error": error,
+        },
+    )
+
+
+@app.get("/releases/list", response_class=HTMLResponse)
+def releases_list_partial(request: Request, db: Session = Depends(get_db)):
+    """HTMX partial — re-renders just the matches list. Refresh button target."""
+    from comic_search.rss_feed import fetch_feed
+    try:
+        entries = fetch_feed()
+        matches = _match_feed_entries(entries, db)
+        return templates.TemplateResponse(
+            "partials/releases_list.html",
+            {"request": request, "matches": matches, "feed_size": len(entries)},
+        )
+    except Exception as exc:
+        return HTMLResponse(
+            f'<div class="alert alert-danger small">Erro ao obter feed: {exc}</div>'
+        )
+
+
 @app.get("/logs", response_class=HTMLResponse)
 def logs_page(request: Request, db: Session = Depends(get_db)):
     files = _log_files()
