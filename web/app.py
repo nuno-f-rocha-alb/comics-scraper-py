@@ -213,12 +213,24 @@ def _refresh_series_meta_from_metron(s: Series, db: Session) -> bool:
     return True
 
 
-def _find_issue_file(s: Series, issue_num: str) -> str | None:
-    """Locate the local CBZ/CBR file for a given issue number, regular or annual."""
+def _find_issue_file(s: Series, issue_num: str, annual: bool | None = None) -> str | None:
+    """Locate the local CBZ/CBR file for a given issue number.
+
+    annual=None  → search both regular and Annuals folders (legacy behaviour)
+    annual=True  → only Annuals subfolder
+    annual=False → only the regular series folder
+    """
     target = str(int(float(issue_num))) if issue_num else None
     if not target:
         return None
-    for folder in (_series_dir(s), os.path.join(_series_dir(s), "Annuals")):
+    base = _series_dir(s)
+    if annual is True:
+        folders = [os.path.join(base, "Annuals")]
+    elif annual is False:
+        folders = [base]
+    else:
+        folders = [base, os.path.join(base, "Annuals")]
+    for folder in folders:
         if not os.path.isdir(folder):
             continue
         for name in os.listdir(folder):
@@ -1602,6 +1614,64 @@ def series_scan(series_id: int, force: bool = Form(default=False), db: Session =
         '<i class="bi bi-arrow-repeat me-1"></i>Scan started…'
         '</button>'
     )
+
+
+# ── Issue file deletion ────────────────────────────────────────────────────────
+
+
+def _delete_issue_file(s: Series, issue_num: str, issue_type: str | None) -> tuple[bool, str]:
+    """Remove a single issue file from disk. Returns (ok, message)."""
+    annual = True if (issue_type or "").lower() == "annual" else False if issue_type else None
+    path = _find_issue_file(s, issue_num, annual=annual)
+    if not path:
+        return False, f"#{issue_num}: local file not found"
+    try:
+        os.remove(path)
+    except OSError as exc:
+        log.error("Failed to delete issue file %s: %s", path, exc)
+        return False, f"#{issue_num}: {exc}"
+    return True, f"#{issue_num} deleted"
+
+
+@app.delete("/series/{series_id}/issues/{issue_num}", response_class=HTMLResponse)
+def issue_delete_file(
+    request: Request,
+    series_id: int,
+    issue_num: str,
+    type: str | None = Query(default=None),
+    db: Session = Depends(get_db),
+):
+    s = db.query(Series).filter(Series.id == series_id).first()
+    if not s:
+        raise HTTPException(status_code=404)
+    ok, msg = _delete_issue_file(s, issue_num, type)
+    return templates.TemplateResponse(
+        "partials/toast.html",
+        {"request": request, "kind": "success" if ok else "error", "message": msg},
+        headers={"HX-Trigger": "refresh-issues"} if ok else None,
+    )
+
+
+@app.post("/api/series/{series_id}/issues/bulk/delete")
+def issue_bulk_delete(series_id: int, payload: dict, db: Session = Depends(get_db)):
+    items = payload.get("items") or []
+    if not items:
+        raise HTTPException(status_code=400, detail="Invalid payload")
+    s = db.query(Series).filter(Series.id == series_id).first()
+    if not s:
+        raise HTTPException(status_code=404)
+    deleted = 0
+    errors: list[str] = []
+    for item in items:
+        num = str(item.get("number", "")).strip()
+        if not num:
+            continue
+        ok, msg = _delete_issue_file(s, num, item.get("type"))
+        if ok:
+            deleted += 1
+        else:
+            errors.append(msg)
+    return {"deleted": deleted, "errors": errors}
 
 
 # ── Local metadata editor ──────────────────────────────────────────────────────

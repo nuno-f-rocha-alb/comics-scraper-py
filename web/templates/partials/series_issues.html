@@ -1,9 +1,14 @@
 {% macro issue_table(issues, series, monitored_nums, has_monitoring, all_monitored, issue_type) %}
 <div class="table-responsive">
-  <table class="table table-hover align-middle mb-0">
+  <table class="table table-hover align-middle mb-0 issues-table">
     <thead>
       <tr>
-        <th class="ps-3" style="width:36px;">
+        <th class="ps-3 issue-select-cell" style="width:32px;">
+          <label class="issue-select issue-select-all" title="Select / deselect all downloaded">
+            <input type="checkbox" class="form-check-input issue-cb-all" data-issue-type="{{ issue_type }}">
+          </label>
+        </th>
+        <th style="width:36px;">
           {% if all_monitored and has_monitoring %}
           {# All issues explicitly in DB → DELETE clears them (back to default / 0 selected) #}
           <button class="btn btn-link btn-sm p-0 text-warning"
@@ -40,8 +45,20 @@
       {% for issue in issues %}
       {% set norm_num = issue.number | string %}
       {% set is_monitored = (not has_monitoring) or (norm_num in monitored_nums) %}
-      <tr class="{{ '' if is_monitored else 'opacity-50' }}">
-        <td class="ps-3">
+      <tr class="issue-row {{ '' if is_monitored else 'opacity-50' }}"
+          data-issue-num="{{ issue.number }}"
+          data-issue-type="{{ issue_type }}"
+          data-status="{{ issue.status }}">
+        <td class="ps-3 issue-select-cell">
+          {% if issue.status == 'downloaded' %}
+          <label class="issue-select" title="Select for bulk delete">
+            <input type="checkbox" class="form-check-input issue-cb"
+                   data-issue-num="{{ issue.number }}"
+                   data-issue-type="{{ issue_type }}">
+          </label>
+          {% endif %}
+        </td>
+        <td>
           <button class="btn btn-link btn-sm p-0 {{ 'text-warning' if is_monitored else 'text-muted' }}"
                   hx-post="/series/{{ series.id }}/issues/{{ issue.number }}/monitor?type={{ issue_type }}"
                   hx-target="this" hx-swap="outerHTML"
@@ -66,6 +83,13 @@
                   data-issue-num="{{ issue.number }}"
                   title="Edit metadata">
             <i class="bi bi-pencil-square"></i>
+          </button>
+          <button class="btn btn-link btn-sm p-0 ms-1 text-danger"
+                  hx-delete="/series/{{ series.id }}/issues/{{ issue.number }}?type={{ issue_type }}"
+                  hx-target="body" hx-swap="none"
+                  hx-confirm="Delete local file for #{{ issue.number }}? This removes the .cbz/.cbr from disk."
+                  title="Delete local file">
+            <i class="bi bi-trash"></i>
           </button>
           {% elif issue.status == 'missing' %}
           <span class="badge"

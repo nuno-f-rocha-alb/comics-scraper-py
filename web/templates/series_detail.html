@@ -179,6 +179,55 @@
 <!-- Toast stack -->
 <div id="toast-stack" class="toast-container position-fixed bottom-0 end-0 p-3" style="z-index:1100;"></div>
 
+<!-- Bulk issue action bar (visible only with selection) -->
+<div id="issue-bulk-bar" class="issue-bulk-bar" style="display:none;">
+  <div class="d-flex align-items-center gap-3 flex-wrap">
+    <span class="fw-semibold small"><span id="issue-bulk-count">0</span> selected</span>
+    <button class="btn btn-sm btn-outline-danger" onclick="issueBulkDelete()">
+      <i class="bi bi-trash me-1"></i>Delete local files
+    </button>
+    <button class="btn btn-sm btn-link text-muted ms-auto" onclick="issueClearSelection()">Clear</button>
+  </div>
+</div>
+
+<style>
+  /* Hover-visible checkbox in each issue row */
+  .issues-table .issue-select-cell { width: 32px; }
+  .issues-table .issue-select {
+    display: inline-flex;
+    align-items: center;
+    cursor: pointer;
+    padding: 2px 4px;
+    border-radius: 4px;
+    opacity: 0;
+    transition: opacity 0.15s ease;
+  }
+  .issues-table tr.issue-row:hover .issue-select,
+  .issues-table .issue-row.is-selected .issue-select,
+  .issues-table .issue-select-all { opacity: 1; }
+  .issues-table .issue-row.is-selected { background: rgba(91,141,217,0.08); }
+  .issues-table .issue-select .form-check-input { margin: 0; cursor: pointer; }
+
+  .issue-bulk-bar {
+    position: fixed;
+    bottom: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 1080;
+    background: var(--bs-body-bg);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 12px;
+    padding: 0.6rem 1rem;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+    min-width: 360px;
+    max-width: calc(100vw - 32px);
+  }
+  [data-bs-theme="light"] .issue-bulk-bar {
+    border-color: rgba(0,0,0,0.08);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+  }
+</style>
+
 <script>
   (function () {
     document.body.addEventListener('htmx:configRequest', function (evt) {
@@ -188,6 +237,95 @@
         const sub = document.getElementById('metadata-editor-title');
         if (sub) sub.textContent = 'Issue #' + num + ' — Edit Metadata';
       }
+    });
+
+    // ── Bulk issue selection ────────────────────────────────────────────
+    const SERIES_ID = {{ s.id }};
+    const bar      = document.getElementById('issue-bulk-bar');
+    const countOut = document.getElementById('issue-bulk-count');
+
+    function selectedItems() {
+      return Array.from(document.querySelectorAll('.issue-cb:checked'))
+        .map(cb => ({
+          number: cb.dataset.issueNum,
+          type:   cb.dataset.issueType || 'regular',
+        }));
+    }
+    function syncBar() {
+      document.querySelectorAll('.issue-cb').forEach(cb => {
+        const row = cb.closest('tr.issue-row');
+        if (row) row.classList.toggle('is-selected', cb.checked);
+      });
+      const items = selectedItems();
+      countOut.textContent = items.length;
+      bar.style.display = items.length ? '' : 'none';
+      // Sync each "select all" header checkbox to its section
+      document.querySelectorAll('.issue-cb-all').forEach(master => {
+        const t = master.dataset.issueType;
+        const peers = document.querySelectorAll(`.issue-cb[data-issue-type="${t}"]`);
+        if (!peers.length) { master.checked = false; master.indeterminate = false; return; }
+        const checked = Array.from(peers).filter(p => p.checked).length;
+        master.checked = checked === peers.length;
+        master.indeterminate = checked > 0 && checked < peers.length;
+      });
+    }
+    // Event delegation: works after htmx replaces #issues-container
+    document.addEventListener('change', e => {
+      const t = e.target;
+      if (!t.classList) return;
+      if (t.classList.contains('issue-cb')) {
+        syncBar();
+      } else if (t.classList.contains('issue-cb-all')) {
+        const type = t.dataset.issueType;
+        document.querySelectorAll(`.issue-cb[data-issue-type="${type}"]`)
+          .forEach(cb => { cb.checked = t.checked; });
+        syncBar();
+      }
+    });
+
+    window.issueClearSelection = function () {
+      document.querySelectorAll('.issue-cb:checked, .issue-cb-all:checked')
+        .forEach(cb => { cb.checked = false; cb.indeterminate = false; });
+      syncBar();
+    };
+
+    function toast(kind, msg) {
+      const stack = document.getElementById('toast-stack');
+      const el = document.createElement('div');
+      el.className = `toast align-items-center text-bg-${kind === 'error' ? 'danger' : 'success'} show mb-2`;
+      el.style.minWidth = '240px';
+      el.innerHTML = `<div class="d-flex"><div class="toast-body">${msg}</div>
+        <button class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button></div>`;
+      stack.appendChild(el);
+      setTimeout(() => el.remove(), 4000);
+    }
+
+    window.issueBulkDelete = async function () {
+      const items = selectedItems();
+      if (!items.length) return;
+      if (!confirm(`Delete ${items.length} local file(s)? This removes the .cbz/.cbr from disk.`)) return;
+      try {
+        const r = await fetch(`/api/series/${SERIES_ID}/issues/bulk/delete`, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({items}),
+        });
+        if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+        const res = await r.json();
+        toast('success', `Deleted ${res.deleted} file(s)`);
+        if (res.errors && res.errors.length) {
+          res.errors.slice(0, 3).forEach(e => toast('error', e));
+        }
+        issueClearSelection();
+        htmx.trigger(document.body, 'refresh-issues');
+      } catch (e) {
+        toast('error', `Failed: ${e.message}`);
+      }
+    };
+
+    // Reset bar after htmx swaps in a fresh issues table
+    document.body.addEventListener('htmx:afterSwap', evt => {
+      if (evt.target && evt.target.id === 'issues-container') syncBar();
     });
   })();
 </script>
