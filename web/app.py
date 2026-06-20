@@ -1894,7 +1894,12 @@ async def rename_apply(request: Request, series_id: int, db: Session = Depends(g
             folder, current, expected = value.split("|", 2)
             src = os.path.join(folder, current)
             dst = os.path.join(folder, expected)
-            if not os.path.exists(src):
+            base = os.path.realpath(COMICS_BASE_DIR)
+            if (os.path.commonpath([base, os.path.realpath(src)]) != base
+                    or os.path.commonpath([base, os.path.realpath(dst)]) != base):
+                log.warning("Rename: path escapes comics dir: %s -> %s", src, dst)
+                errors += 1
+            elif not os.path.exists(src):
                 log.warning("Rename: source not found: %s", src)
                 errors += 1
             elif os.path.exists(dst):

@@ -26,10 +26,11 @@ def has_metadata(cbz_path: str) -> bool:
 
 def _issue_number(filename: str) -> str | None:
     name = os.path.splitext(filename)[0]
-    # Prefer explicit "#NNN"
-    m = re.search(r"#(\d+)", name)
+    # Prefer explicit "#NNN" (decimals like #1.5 preserved, not truncated to #1)
+    m = re.search(r"#(\d+(?:\.\d+)?)", name)
     if m:
-        return str(int(m.group(1)))
+        n = m.group(1)
+        return str(float(n)) if "." in n else str(int(n))
     # "NNN (of MM)" — miniseries format: the issue number precedes "(of N)"
     m = re.search(r"(\d+)\s*\(of\s*\d+\)", name, re.IGNORECASE)
     if m:
@@ -47,7 +48,11 @@ def _issue_number(filename: str) -> str | None:
 
 def expected_filename(entry: tuple, issue_number: str, ext: str) -> str:
     from util import sanitize_filename
-    formatted = f"{int(issue_number):03d}"
+    if "." in issue_number:  # decimal issue e.g. 1.5 -> 001.5 (matches downloader naming)
+        int_part, frac = issue_number.split(".", 1)
+        formatted = f"{int(int_part):03d}.{frac}"
+    else:
+        formatted = f"{int(issue_number):03d}"
     return f"{sanitize_filename(entry[1])} #{formatted} ({entry[2]}){ext}"
 
 

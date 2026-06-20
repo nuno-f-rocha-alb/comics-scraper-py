@@ -1,7 +1,7 @@
 """Background library scanner — retagging CBZ files with Metron/ComicVine metadata."""
 import logging
 import threading
-from datetime import datetime
+from datetime import datetime, timezone
 
 _lock = threading.Lock()
 _running = False
@@ -65,7 +65,7 @@ def run_scan(series_list: list[tuple], force: bool = False) -> bool:
         finally:
             with _lock:
                 _running = False
-                _last_scan_at = datetime.utcnow()
+                _last_scan_at = datetime.now(timezone.utc)
                 _progress["done"] = _progress["total"]
                 _progress["current"] = ""
             log.info(

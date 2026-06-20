@@ -5,17 +5,20 @@ from config import *
 
 
 def convert_cbr_to_cbz(cbr_path):
-    cbz_path = cbr_path.replace(".cbr", ".cbz")
+    cbz_path = os.path.splitext(cbr_path)[0] + ".cbz"
+    written = 0
     with rarfile.RarFile(cbr_path) as rar:
         with zipfile.ZipFile(cbz_path, "w") as cbz:
             for file_info in rar.infolist():
                 try:
                     with rar.open(file_info) as file:
                         cbz.writestr(file_info.filename, file.read())
+                        written += 1
                 except Exception as e:
                     logging.error(f"Error converting {cbr_path} to {cbz_path}: {e}")
                     continue
-    if os.path.exists(cbz_path) and os.path.getsize(cbz_path) > 0:
+    # An empty zip is still ~22 bytes, so count writes rather than file size
+    if written > 0 and os.path.exists(cbz_path):
         os.remove(cbr_path)
         logging.info(f"Converted {cbr_path} to {cbz_path}.")
     else:

@@ -125,9 +125,15 @@ def check_and_download_comics(
             logging.info(f"Ignoring {title} due to unwanted keyword in title.")
             continue
 
-        issue_match = re.search(r"#(\d+)", title)
+        issue_match = re.search(r"#(\d+(?:\.\d+)?)", title)
         issue_number = issue_match.group(1) if issue_match else "000"
-        formatted_issue_number = f"{int(issue_number):03}" if issue_number.isdigit() else "000"
+        if "." in issue_number:  # decimal issue e.g. 1.5 -> 001.5 (avoid collision with #1)
+            int_part, frac = issue_number.split(".", 1)
+            formatted_issue_number = f"{int(int_part):03}.{frac}"
+        elif issue_number.isdigit():
+            formatted_issue_number = f"{int(issue_number):03}"
+        else:
+            formatted_issue_number = "000"
 
         # Apply issue number bounds
         if issue_number.isdigit():
