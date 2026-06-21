@@ -166,3 +166,20 @@ check (the reused handler already 404s / unmonitor is idempotent).
 **/flow note:** biggest page; orchestrator-inline build again proved right (a cold subagent would re-read
 ~6 templates + 13 handlers). The `sed` prop-strip trimmed a shared-line prop by accident → caught by the
 `npm run build` gate immediately. Reinforces: the objective gate, not the edit, is the safety net.
+
+## §7 — Page 5 (Downloads)
+
+**Backend:** JSON endpoints `GET /api/downloads` (history), `/api/downloads/active` (+ per-job
+`progress {bytes,total,rate_bps}` from worker), `/api/downloads/badge` ({count}), `DELETE /api/downloads/{id}`,
+`POST /api/downloads/{id}/cancel`, `DELETE /api/downloads` (clear). Shared `_job_dict` serializer. Jinja
+routes untouched.
+
+**Frontend:** `Downloads` page (`/downloads`) — Active section (poll 3s via `refetchInterval`, progress bar +
+bytes/%/speed/ETA, cancel) + History table (source filters all/scraper/manual/failed, status badges,
+fail-error display, per-row remove, Clear All). **Bonus:** wired the live download count badge into the
+sidebar Downloads nav (poll 5s) — resolves the slot deferred in §3.
+
+**Gate:** `npm run build` ✅. Live-verified via DOM eval (all 5 statuses, both sources, 4 filters, progress
+ETA/MB, fail error, Clear All, sidebar badge "2"). Note: `preview_screenshot` times out on this page — the
+3s active-poll keeps the network busy so the tool never sees "idle"; not a page bug (eval confirms render).
+CodeRabbit: 2 — fixed api_download_delete 404-vs-409 (None job now 404) + unknown-typed catch guard.

@@ -208,6 +208,33 @@ export const applyRename = (id: number, renames: RenameItem[]) =>
 export const toggleSeries = (id: number, action: "pause" | "resume") =>
   postJSON<{ updated: number }>(`/api/series/bulk/toggle`, { ids: [id], action })
 
+// ── Downloads ─────────────────────────────────────────────────────────────
+export type JobStatus = "queued" | "downloading" | "done" | "failed" | "cancelled"
+export interface DownloadJob {
+  id: number
+  series_id: number
+  series_name: string | null
+  issue_number: string
+  search_term: string
+  error: string | null
+  filename: string | null
+  source: "manual" | "scraper"
+  status: JobStatus
+  created_at: string | null
+}
+export interface ActiveJob extends DownloadJob {
+  progress: { bytes: number; total: number; rate_bps: number } | null
+}
+export const getDownloads = () => http<{ jobs: DownloadJob[] }>("/api/downloads")
+export const getActiveDownloads = () => http<{ jobs: ActiveJob[] }>("/api/downloads/active")
+export const getDownloadsBadge = () => http<{ count: number }>("/api/downloads/badge")
+export const deleteDownload = (id: number) =>
+  http<{ ok: boolean }>(`/api/downloads/${id}`, { method: "DELETE" })
+export const cancelDownload = (id: number) =>
+  http<{ ok: boolean }>(`/api/downloads/${id}/cancel`, { method: "POST" })
+export const clearDownloads = () =>
+  http<{ cleared: number }>("/api/downloads", { method: "DELETE" })
+
 // Form-post endpoints that redirect on success (cache refresh / cover sync).
 export const postAction = (url: string) =>
   fetch(url, { method: "POST" }).then((r) => {

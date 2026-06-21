@@ -13,7 +13,9 @@ import {
   Sun,
   Terminal,
 } from "lucide-react"
+import { useQuery } from "@tanstack/react-query"
 import { applyTheme, getInitialTheme, type Theme } from "@/lib/theme"
+import { getDownloadsBadge } from "@/lib/api"
 import { cn } from "@/lib/utils"
 
 const NAV = [
@@ -37,6 +39,11 @@ export function AppLayout() {
   const [theme, setTheme] = useState<Theme>(getInitialTheme)
   const [open, setOpen] = useState(false)
   const { pathname } = useLocation()
+  const badge = useQuery({
+    queryKey: ["downloads-badge"],
+    queryFn: getDownloadsBadge,
+    refetchInterval: 5000,
+  })
 
   useEffect(() => applyTheme(theme), [theme])
 
@@ -98,6 +105,11 @@ export function AppLayout() {
                 >
                   <Icon className="size-4 shrink-0" />
                   {label}
+                  {to === "/downloads" && !!badge.data?.count && (
+                    <span className="ml-auto rounded-full bg-primary px-1.5 text-[0.65rem] font-semibold text-primary-foreground">
+                      {badge.data.count}
+                    </span>
+                  )}
                 </Link>
               </li>
             )

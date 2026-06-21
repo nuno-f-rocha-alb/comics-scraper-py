@@ -1196,6 +1196,97 @@ def downloads_badge(db: Session = Depends(get_db)):
     return HTMLResponse('<span id="dl-badge"></span>')
 
 
+# ── Downloads JSON API (React) ──────────────────────────────────────────────────
+
+
+def _job_dict(j: DownloadJob, series_map: dict) -> dict:
+    s = series_map.get(j.series_id)
+    return {
+        "id": j.id,
+        "series_id": j.series_id,
+        "series_name": s.series_name if s else None,
+        "issue_number": j.issue_number,
+        "search_term": j.search_term,
+        "error": j.error,
+        "filename": j.filename,
+        "source": j.source,
+        "status": j.status,
+        "created_at": j.created_at.isoformat() if j.created_at else None,
+    }
+
+
+@app.get("/api/downloads")
+def api_downloads(db: Session = Depends(get_db)):
+    jobs = db.query(DownloadJob).order_by(DownloadJob.created_at.desc()).limit(200).all()
+    series_map = {s.id: s for s in db.query(Series).all()}
+    return {"jobs": [_job_dict(j, series_map) for j in jobs]}
+
+
+@app.get("/api/downloads/active")
+def api_downloads_active(db: Session = Depends(get_db)):
+    from web.worker import get_progress
+
+    active = (
+        db.query(DownloadJob)
+        .filter(DownloadJob.status.in_(["queued", "downloading"]))
+        .order_by(DownloadJob.created_at)
+        .all()
+    )
+    series_map = {s.id: s for s in db.query(Series).all()}
+    return {
+        "jobs": [{**_job_dict(j, series_map), "progress": get_progress(j.id)} for j in active]
+    }
+
+
+@app.get("/api/downloads/badge")
+def api_downloads_badge(db: Session = Depends(get_db)):
+    count = (
+        db.query(DownloadJob)
+        .filter(DownloadJob.status.in_(["queued", "downloading"]))
+        .count()
+    )
+    return {"count": count}
+
+
+@app.delete("/api/downloads/{job_id}")
+def api_download_delete(job_id: int, db: Session = Depends(get_db)):
+    job = db.get(DownloadJob, job_id)
+    if not job:
+        raise HTTPException(status_code=404)
+    if job.status in ("queued", "downloading"):
+        raise HTTPException(status_code=409, detail="Cannot delete an active job.")
+    db.delete(job)
+    db.commit()
+    return {"ok": True}
+
+
+@app.post("/api/downloads/{job_id}/cancel")
+def api_download_cancel(job_id: int, db: Session = Depends(get_db)):
+    from web.worker import request_cancel
+
+    job = db.get(DownloadJob, job_id)
+    if not job:
+        raise HTTPException(status_code=404)
+    if job.status == "queued":
+        job.status = "cancelled"
+        job.finished_at = datetime.now(timezone.utc)
+        db.commit()
+    elif job.status == "downloading":
+        request_cancel(job_id)
+    return {"ok": True}
+
+
+@app.delete("/api/downloads")
+def api_downloads_clear(db: Session = Depends(get_db)):
+    n = (
+        db.query(DownloadJob)
+        .filter(DownloadJob.status.in_(["done", "failed", "cancelled"]))
+        .delete()
+    )
+    db.commit()
+    return {"cleared": n}
+
+
 # ── Scheduler ─────────────────────────────────────────────────────────────────
 
 @app.get("/scheduler", response_class=HTMLResponse)
