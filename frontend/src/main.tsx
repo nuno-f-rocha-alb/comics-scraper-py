@@ -7,6 +7,7 @@ import { AppLayout } from "@/components/AppLayout"
 import { SeriesList } from "@/pages/SeriesList"
 import { SeriesEdit } from "@/pages/SeriesEdit"
 import { SeriesAdd } from "@/pages/SeriesAdd"
+import { SeriesDetail } from "@/pages/SeriesDetail"
 import { ComingSoon } from "@/pages/ComingSoon"
 import { Toaster } from "@/components/ui/sonner"
 
@@ -24,7 +25,7 @@ createRoot(document.getElementById("root")!).render(
             <Route path="/series" element={<SeriesList />} />
             <Route path="/series/add" element={<SeriesAdd />} />
             <Route path="/series/:id/edit" element={<SeriesEdit />} />
-            <Route path="/series/:id" element={<ComingSoon title="Series Detail" />} />
+            <Route path="/series/:id" element={<SeriesDetail />} />
             <Route path="/calendar" element={<ComingSoon title="Calendar" />} />
             <Route path="/releases" element={<ComingSoon title="Releases" />} />
             <Route path="/downloads" element={<ComingSoon title="Downloads" />} />

@@ -1793,6 +1793,326 @@ def series_issues_partial(
     )
 
 
+# ── Series detail JSON API (React) ──────────────────────────────────────────────
+
+
+@app.get("/api/series/{series_id}/detail")
+def api_series_detail(series_id: int, db: Session = Depends(get_db)):
+    s = db.query(Series).filter(Series.id == series_id).first()
+    if not s:
+        raise HTTPException(status_code=404)
+    return {**_series_dict(s), "local_count": _count_local_issues(s)}
+
+
+@app.get("/api/series/{series_id}/issues")
+def api_series_issues(series_id: int, force: bool = False, db: Session = Depends(get_db)):
+    """JSON issues list (regular + annual) for the React detail page."""
+    from metadata.metron_client import RateLimitedError
+
+    s = db.query(Series).filter(Series.id == series_id).first()
+    if not s:
+        raise HTTPException(status_code=404)
+    if not s.metron_series_id:
+        return {"has_metron": False, "regular": [], "annual": []}
+
+    local_nums = _local_issue_numbers(s)
+    local_annual_nums = _local_annual_issue_numbers(s) if s.metron_annual_series_id else set()
+    try:
+        raw = _get_or_fetch_metron_issues(s.metron_series_id, db, force=force, block=False)
+        regular = _build_issue_list(raw, local_nums)
+    except RateLimitedError as exc:
+        return {"has_metron": True, "rate_limited": int(exc.seconds) + 2, "regular": [], "annual": []}
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Metron error: {exc}")
+
+    annual: list[dict] = []
+    if s.metron_annual_series_id:
+        try:
+            annual = _build_issue_list(
+                _get_or_fetch_metron_issues(s.metron_annual_series_id, db, force=force, block=False),
+                local_annual_nums,
+            )
+        except Exception:
+            pass
+
+    first = (
+        db.query(MetronIssueCache).filter(MetronIssueCache.series_id == s.metron_series_id).first()
+    )
+    rows = db.query(MonitoredIssue).filter(MonitoredIssue.series_id == s.id).all()
+    return {
+        "has_metron": True,
+        "regular": regular,
+        "annual": annual,
+        "monitored_regular": sorted({m.issue_number for m in rows if m.issue_type == "regular"}),
+        "monitored_annual": sorted({m.issue_number for m in rows if m.issue_type == "annual"}),
+        "has_monitoring": bool(rows),
+        "cached_at": first.cached_at.isoformat() if first and first.cached_at else None,
+    }
+
+
+@app.post("/api/series/{series_id}/issues/{number}/monitor")
+def api_issue_monitor(series_id: int, number: str, type: str = Query(default="regular"), db: Session = Depends(get_db)):
+    s = db.query(Series).filter(Series.id == series_id).first()
+    if not s:
+        raise HTTPException(status_code=404)
+    issue_type = type if type in ("regular", "annual") else "regular"
+    try:
+        norm = str(int(float(number)))
+    except (ValueError, TypeError):
+        norm = number
+    existing = (
+        db.query(MonitoredIssue)
+        .filter(
+            MonitoredIssue.series_id == series_id,
+            MonitoredIssue.issue_number == norm,
+            MonitoredIssue.issue_type == issue_type,
+        )
+        .first()
+    )
+    if existing:
+        db.delete(existing)
+        monitored = False
+    else:
+        db.add(MonitoredIssue(series_id=series_id, issue_number=norm, issue_type=issue_type))
+        monitored = True
+    _recompute_pause_state(s, db)
+    db.commit()
+    return {"monitored": monitored}
+
+
+@app.post("/api/series/{series_id}/monitor-all")
+def api_monitor_all(series_id: int, db: Session = Depends(get_db)):
+    monitor_all(series_id, db)  # reuse existing insert logic (returns HX response, ignored)
+    return {"ok": True}
+
+
+@app.delete("/api/series/{series_id}/monitor-all")
+def api_unmonitor_all(series_id: int, db: Session = Depends(get_db)):
+    unmonitor_all(series_id, db)
+    return {"ok": True}
+
+
+@app.post("/api/series/{series_id}/issues/{number}/download")
+def api_issue_download(series_id: int, number: str, db: Session = Depends(get_db)):
+    s = db.query(Series).filter(Series.id == series_id).first()
+    if not s:
+        raise HTTPException(status_code=404)
+    existing = (
+        db.query(DownloadJob)
+        .filter(
+            DownloadJob.series_id == series_id,
+            DownloadJob.issue_number == number,
+            DownloadJob.status.in_(["queued", "downloading"]),
+        )
+        .first()
+    )
+    if not existing:
+        search_name = s.getcomics_search_name or s.series_name
+        job = DownloadJob(
+            series_id=series_id,
+            issue_number=number,
+            search_term=f"{search_name} #{number} ({s.year})",
+            status="queued",
+        )
+        db.add(job)
+        db.commit()
+        from web import worker
+        worker.enqueue(job.id)
+    return {"status": "queued"}
+
+
+@app.delete("/api/series/{series_id}/issues/{issue_num}")
+def api_issue_delete(series_id: int, issue_num: str, type: str | None = Query(default=None), db: Session = Depends(get_db)):
+    s = db.query(Series).filter(Series.id == series_id).first()
+    if not s:
+        raise HTTPException(status_code=404)
+    ok, msg = _delete_issue_file(s, issue_num, type)
+    if not ok:
+        raise HTTPException(status_code=404, detail=msg)
+    return {"ok": True, "message": msg}
+
+
+@app.post("/api/series/{series_id}/scan")
+def api_series_scan(series_id: int, force: bool = False, db: Session = Depends(get_db)):
+    s = db.query(Series).filter(Series.id == series_id).first()
+    if not s:
+        raise HTTPException(status_code=404)
+    _scanner.run_scan([s.to_scraper_tuple()], force=force)
+    return {"ok": True}
+
+
+@app.delete("/api/series/{series_id}")
+def api_series_delete(series_id: int, db: Session = Depends(get_db)):
+    n = db.query(Series).filter(Series.id == series_id).delete(synchronize_session=False)
+    db.commit()
+    if not n:
+        raise HTTPException(status_code=404)
+    return {"deleted": n}
+
+
+@app.get("/api/series/{series_id}/issues/{issue_num}/metadata")
+def api_issue_metadata(series_id: int, issue_num: str, source: str = "", db: Session = Depends(get_db)):
+    """ComicInfo fields for an issue. source=metron → fetch defaults from Metron."""
+    from metadata.comicinfo_io import read_comicinfo, empty_fields
+
+    s = db.query(Series).filter(Series.id == series_id).first()
+    if not s:
+        raise HTTPException(status_code=404)
+    cbz = _find_issue_file(s, issue_num)
+    if source == "metron":
+        from metadata.get_comic_metadata import get_comic_metadata
+
+        fields = empty_fields()
+        try:
+            meta = get_comic_metadata(s.to_scraper_tuple(), issue_num)
+            if meta:
+                fields["Series"] = str(meta.get("series_name") or s.series_name or "")
+                fields["Number"] = str(meta.get("issue_number") or issue_num)
+                fields["Title"] = str(meta.get("title") or "")
+                fields["Publisher"] = str(meta.get("publisher") or s.publisher or "")
+                fields["Summary"] = str(meta.get("description") or "")
+                fields["PageCount"] = str(meta.get("page_count") or "")
+                store_date = meta.get("store_date") or ""
+                if len(store_date) >= 7:
+                    fields["Year"] = store_date[:4]
+                    fields["Month"] = str(int(store_date[5:7]))
+                for role in ("Writer", "Penciller", "Inker", "Colorist", "Letterer", "CoverArtist"):
+                    key = role.lower() if role != "CoverArtist" else "cover_artist"
+                    v = meta.get(key) or meta.get(role) or ""
+                    if isinstance(v, list):
+                        v = ", ".join(str(x) for x in v)
+                    fields[role] = str(v)
+        except Exception as exc:
+            log.error("Failed to fetch from Metron: %s", exc)
+        return {"fields": fields, "filename": os.path.basename(cbz) if cbz else "", "from_metron": True}
+    if not cbz:
+        raise HTTPException(status_code=404, detail="Local file not found for this issue.")
+    try:
+        fields = read_comicinfo(cbz)
+    except Exception as exc:
+        log.error("Failed to read ComicInfo.xml from %s: %s", cbz, exc)
+        fields = empty_fields()
+    return {"fields": fields, "filename": os.path.basename(cbz), "from_metron": False}
+
+
+@app.post("/api/series/{series_id}/issues/{issue_num}/metadata")
+def api_issue_metadata_save(series_id: int, issue_num: str, payload: dict, db: Session = Depends(get_db)):
+    from metadata.comicinfo_io import write_comicinfo, EDITOR_FIELDS
+
+    s = db.query(Series).filter(Series.id == series_id).first()
+    if not s:
+        raise HTTPException(status_code=404)
+    cbz = _find_issue_file(s, issue_num)
+    if not cbz:
+        raise HTTPException(status_code=404, detail="Local file not found.")
+    fields = {k: str(payload.get(k) or "").strip() for k in EDITOR_FIELDS}
+    try:
+        ok = write_comicinfo(cbz, fields)
+    except Exception as exc:
+        log.error("Failed to write ComicInfo.xml to %s: %s", cbz, exc)
+        raise HTTPException(status_code=500, detail=f"Save failed: {exc}")
+    if not ok:
+        raise HTTPException(status_code=500, detail="Save returned failure.")
+    return {"ok": True}
+
+
+@app.get("/api/series/{series_id}/series-xml")
+def api_series_xml(series_id: int, db: Session = Depends(get_db)):
+    from metadata.series_xml import read_series_xml
+
+    s = db.query(Series).filter(Series.id == series_id).first()
+    if not s:
+        raise HTTPException(status_code=404)
+    return {"fields": read_series_xml(_series_dir(s))}
+
+
+@app.post("/api/series/{series_id}/series-xml")
+def api_series_xml_save(series_id: int, payload: dict, db: Session = Depends(get_db)):
+    from metadata.series_xml import FIELDS, write_series_xml
+
+    s = db.query(Series).filter(Series.id == series_id).first()
+    if not s:
+        raise HTTPException(status_code=404)
+    fields = {k: str(payload.get(k) or "").strip() for k in FIELDS}
+    try:
+        write_series_xml(_series_dir(s), fields)
+    except Exception as exc:
+        log.error("Failed to write series.xml: %s", exc)
+        raise HTTPException(status_code=500, detail=f"Save failed: {exc}")
+    return {"ok": True}
+
+
+@app.get("/api/series/{series_id}/rename-preview")
+def api_rename_preview(series_id: int, db: Session = Depends(get_db)):
+    from retag_comics import _issue_number as _parse_num, expected_filename
+
+    s = db.query(Series).filter(Series.id == series_id).first()
+    if not s:
+        raise HTTPException(status_code=404)
+    entry = s.to_scraper_tuple()
+
+    def _scan(directory: str, scan_entry: tuple) -> list[dict]:
+        if not os.path.isdir(directory):
+            return []
+        out = []
+        for filename in sorted(os.listdir(directory)):
+            if not filename.lower().endswith((".cbz", ".cbr")):
+                continue
+            ext = os.path.splitext(filename)[1].lower()
+            num = _parse_num(filename)
+            exp = expected_filename(scan_entry, num, ext) if num else None
+            out.append({
+                "folder": directory,
+                "current": filename,
+                "expected": exp,
+                "changed": exp is not None and filename != exp,
+            })
+        return out
+
+    series_dir = _series_dir(s)
+    items = _scan(series_dir, entry)
+    items += _scan(os.path.join(series_dir, "Annuals"), (entry[0], f"{entry[1]} Annual", entry[2]))
+    return {
+        "changed": [i for i in items if i["changed"]],
+        "correct_count": sum(1 for i in items if i["expected"] and not i["changed"]),
+        "unparseable": [i for i in items if i["expected"] is None],
+    }
+
+
+@app.post("/api/series/{series_id}/rename-apply")
+def api_rename_apply(series_id: int, payload: dict, db: Session = Depends(get_db)):
+    renames = payload.get("renames") or []
+    base = os.path.realpath(COMICS_BASE_DIR)
+    renamed = errors = 0
+    for item in renames:
+        folder = str(item.get("folder", ""))
+        current = str(item.get("current", ""))
+        expected = str(item.get("expected", ""))
+        if not (folder and current and expected):
+            errors += 1
+            continue
+        src = os.path.join(folder, current)
+        dst = os.path.join(folder, expected)
+        try:
+            # commonpath raises ValueError on Windows for cross-drive paths
+            escapes = (
+                os.path.commonpath([base, os.path.realpath(src)]) != base
+                or os.path.commonpath([base, os.path.realpath(dst)]) != base
+            )
+            if escapes:
+                log.warning("Rename: path escapes comics dir: %s -> %s", src, dst)
+                errors += 1
+            elif not os.path.exists(src) or os.path.exists(dst):
+                errors += 1
+            else:
+                os.rename(src, dst)
+                renamed += 1
+        except (OSError, ValueError) as exc:
+            log.error("Rename error: %s", exc)
+            errors += 1
+    return {"renamed": renamed, "errors": errors}
+
+
 # ── Library scan ───────────────────────────────────────────────────────────────
 
 from web import scanner as _scanner

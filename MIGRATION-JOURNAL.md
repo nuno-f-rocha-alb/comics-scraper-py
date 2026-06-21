@@ -137,3 +137,32 @@ year), form matches add_form.html, nav "Add Series" active. CodeRabbit: 3 majors
 the trust-boundary validation the SPA's Zod can't enforce server-side); (2) duplicate (publisher,name,year)
 → caught `IntegrityError` → 409 instead of 500 (both create + update); (3) `intOrNull` could emit NaN→null
 silently → hardened to a shared `parseIntOrNull` in lib/utils (used by Add + Edit).
+
+## §6 — Page 4 (Series detail — the big one)
+
+**Backend (one block of JSON endpoints, all reuse existing helpers; Jinja routes untouched):**
+`GET /api/series/{id}/detail` (header + local_count), `GET /api/series/{id}/issues` (regular+annual lists,
+monitored sets, has_monitoring, cached_at, rate_limited passthrough), `POST .../issues/{n}/monitor`,
+`POST|DELETE .../monitor-all` (reuse the HTML handlers' DB logic directly), `POST .../issues/{n}/download`,
+`DELETE .../issues/{n}`, `POST .../scan`, `DELETE /api/series/{id}`, metadata GET (`?source=metron`)/POST,
+series-xml GET/POST, rename-preview GET / rename-apply POST (same `commonpath` traversal guard as §1).
+
+**Frontend:** `SeriesDetail` (`/series/:id`) — header (cover, status, meta, progress, Edit/Pause/Scan/
+Preview-Rename/Delete), `IssuesTable` (regular + annual sections; per-row monitor bookmark, status badges
+Downloaded/Missing/Upcoming/TBA, missing→click-to-download, downloaded→edit+delete, bulk-select checkboxes),
+bulk-delete bar, footer (cached_at, Selective badge, Monitor/Unmonitor all), rate-limit auto-retry via
+`refetchInterval`. Extracted components `MetadataSheet` (shadcn Sheet, ComicInfo EDITOR_FIELDS + "Load from
+Metron" + save) and `SeriesNotes` (collapsible series.xml editor). Added shadcn sheet/textarea/label/separator.
+
+**Gate:** `npm run build` ✅. Live-verified (dark): all 6 issue rows + statuses, monitored bookmarks filled
+for 1-3 / dimmed 4-5 (selective mode), Annuals section, cached/selective footer, Series Notes expands (6
+fields), metadata Sheet opens ("Issue #1 — Edit Metadata", 18 fields). CodeRabbit: 1 critical (false
+positive — claimed the `.gitignore` lib negation was removed; verified present + lib files tracked) + 5
+minor. Fixed: `commonpath` ValueError guard on the JSON rename-apply (cross-drive on Windows); the two
+form `useEffect`s (MetadataSheet, SeriesNotes) now populate once-per-issue/open via a ref so a background
+refetch can't clobber unsaved edits. Skipped: vendored `"use client"` in label.tsx; monitor-all existence
+check (the reused handler already 404s / unmonitor is idempotent).
+
+**/flow note:** biggest page; orchestrator-inline build again proved right (a cold subagent would re-read
+~6 templates + 13 handlers). The `sed` prop-strip trimmed a shared-line prop by accident → caught by the
+`npm run build` gate immediately. Reinforces: the objective gate, not the edit, is the safety net.
