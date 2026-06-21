@@ -1170,8 +1170,10 @@ def root():
     return RedirectResponse(url="/series")
 
 
-@app.get("/series", response_class=HTMLResponse)
-def series_list(request: Request, db: Session = Depends(get_db)):
+def _series_overview(db: Session):
+    """Shared computation for the series grid: rows + per-series local counts,
+    status classification, and footer stats. Used by both the Jinja page and
+    the JSON API so the two never drift."""
     rows = db.query(Series).order_by(Series.publisher, Series.series_name).all()
     local_counts = {s.id: _count_local_issues(s) for s in rows}
 
@@ -1258,6 +1260,12 @@ def series_list(request: Request, db: Session = Depends(get_db)):
         "files_total": sum(local_counts.values()),
     }
 
+    return rows, local_counts, statuses, stats
+
+
+@app.get("/series", response_class=HTMLResponse)
+def series_list(request: Request, db: Session = Depends(get_db)):
+    rows, local_counts, statuses, stats = _series_overview(db)
     return templates.TemplateResponse(
         "series_list.html",
         {
@@ -1268,6 +1276,32 @@ def series_list(request: Request, db: Session = Depends(get_db)):
             "stats": stats,
         },
     )
+
+
+@app.get("/api/series/overview")
+def api_series_overview(db: Session = Depends(get_db)):
+    """JSON backing the React series grid — same data as the Jinja page."""
+    rows, local_counts, statuses, stats = _series_overview(db)
+    return {
+        "series": [
+            {
+                "id": s.id,
+                "publisher": s.publisher,
+                "series_name": s.series_name,
+                "year": s.year,
+                "cover_image_url": s.cover_image_url,
+                "total_issues": s.total_issues,
+                "enabled": s.enabled,
+                "metron_series_id": s.metron_series_id,
+                "comicvine_volume_id": s.comicvine_volume_id,
+                "getcomics_search_name": s.getcomics_search_name,
+                "local_count": local_counts[s.id],
+                "status": statuses[s.id],
+            }
+            for s in rows
+        ],
+        "stats": stats,
+    }
 
 
 @app.get("/series/add", response_class=HTMLResponse)

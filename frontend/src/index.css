@@ -1,0 +1,104 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+/* ── Design system: dark "media library" ──────────────────────────────────
+   Deep neutral surfaces, blue-violet accent (#5b8dd9), Sonarr-style status
+   colours kept as semantic tokens so the SPA matches the Jinja cards exactly.
+   Light + dark both defined. */
+:root {
+  --radius: 0.625rem;
+  --background: oklch(0.985 0 0);
+  --foreground: oklch(0.205 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.205 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.205 0 0);
+  --primary: oklch(0.62 0.12 256);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.62 0.12 256);
+  /* Sonarr-style series status colours (parity with series_list.html) */
+  --status-continuing: oklch(0.66 0.11 256);         /* blue   */
+  --status-ended: oklch(0.72 0.18 152);              /* green  */
+  --status-missing-monitored: oklch(0.72 0.16 22);   /* red    */
+  --status-missing-unmonitored: oklch(0.72 0.17 52); /* orange */
+  --status-downloading: oklch(0.72 0.15 295);        /* violet */
+}
+
+.dark {
+  --background: oklch(0.16 0.004 256);
+  --foreground: oklch(0.97 0 0);
+  --card: oklch(0.205 0.006 256);
+  --card-foreground: oklch(0.97 0 0);
+  --popover: oklch(0.205 0.006 256);
+  --popover-foreground: oklch(0.97 0 0);
+  --primary: oklch(0.66 0.11 256);
+  --primary-foreground: oklch(0.16 0.004 256);
+  --secondary: oklch(0.27 0.006 256);
+  --secondary-foreground: oklch(0.97 0 0);
+  --muted: oklch(0.27 0.006 256);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.27 0.006 256);
+  --accent-foreground: oklch(0.97 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 8%);
+  --input: oklch(1 0 0 / 12%);
+  --ring: oklch(0.66 0.11 256);
+}
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-status-continuing: var(--status-continuing);
+  --color-status-ended: var(--status-ended);
+  --color-status-missing-monitored: var(--status-missing-monitored);
+  --color-status-missing-unmonitored: var(--status-missing-unmonitored);
+  --color-status-downloading: var(--status-downloading);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+  /* a11y: respect reduced-motion globally */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
