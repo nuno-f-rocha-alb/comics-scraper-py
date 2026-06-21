@@ -2231,6 +2231,29 @@ def library_scan(force: bool = Form(default=False), db: Session = Depends(get_db
     return Response(status_code=200, headers={"HX-Trigger": "refresh-scan-status"})
 
 
+def _scan_status_json() -> dict:
+    st = _scanner.get_status()
+    last = st.get("last_scan_at")
+    return {
+        "running": st.get("running", False),
+        "last_scan_at": last.isoformat() if last else None,
+        "last_scan_error": st.get("last_scan_error"),
+        "progress": st.get("progress") or {"current": "", "done": 0, "total": 0},
+    }
+
+
+@app.get("/api/library/status")
+def api_library_status():
+    return _scan_status_json()
+
+
+@app.post("/api/library/scan")
+def api_library_scan(force: bool = Query(default=False)):
+    from retag_comics import load_series_from_db
+    started = _scanner.run_scan(load_series_from_db(), force=force)
+    return {"started": started, **_scan_status_json()}
+
+
 @app.post("/series/{series_id}/scan", response_class=HTMLResponse)
 def series_scan(series_id: int, force: bool = Form(default=False), db: Session = Depends(get_db)):
     s = db.query(Series).filter(Series.id == series_id).first()

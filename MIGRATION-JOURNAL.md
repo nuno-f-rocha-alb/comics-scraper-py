@@ -183,3 +183,15 @@ sidebar Downloads nav (poll 5s) — resolves the slot deferred in §3.
 ETA/MB, fail error, Clear All, sidebar badge "2"). Note: `preview_screenshot` times out on this page — the
 3s active-poll keeps the network busy so the tool never sees "idle"; not a page bug (eval confirms render).
 CodeRabbit: 2 — fixed api_download_delete 404-vs-409 (None job now 404) + unknown-typed catch guard.
+
+## §8 — Page 6 (Library)
+
+**Backend:** `GET /api/library/status` + `POST /api/library/scan?force=` (returns `{started, ...status}`)
+via shared `_scan_status_json()` serializing `web.scanner.get_status()`. Jinja routes untouched.
+
+**Frontend:** `Library` page (`/library`) — Scan Status (Idle/Running badge, progress current/done/total
+while running, last-scan timestamp + error) polling 2s only while running; Scan & Retag card with Force-retag
+checkbox + Scan button (disabled while running).
+
+**Gate:** `npm run build` ✅. Live screenshot ✅ matches library.html (idle status, last-scan, controls).
+CodeRabbit: 3 — st.get("running") + explicit Query(force); skipped progress.current OR (it is a string, not numeric 0).

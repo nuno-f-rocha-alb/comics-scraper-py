@@ -235,6 +235,17 @@ export const cancelDownload = (id: number) =>
 export const clearDownloads = () =>
   http<{ cleared: number }>("/api/downloads", { method: "DELETE" })
 
+// ── Library ─────────────────────────────────────────────────────────────────
+export interface ScanStatus {
+  running: boolean
+  last_scan_at: string | null
+  last_scan_error: string | null
+  progress: { current: string; done: number; total: number }
+}
+export const getLibraryStatus = () => http<ScanStatus>("/api/library/status")
+export const startLibraryScan = (force: boolean) =>
+  http<ScanStatus & { started: boolean }>(`/api/library/scan?force=${force}`, { method: "POST" })
+
 // Form-post endpoints that redirect on success (cache refresh / cover sync).
 export const postAction = (url: string) =>
   fetch(url, { method: "POST" }).then((r) => {
