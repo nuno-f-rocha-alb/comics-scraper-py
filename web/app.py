@@ -13,7 +13,8 @@ from fastapi import Depends, FastAPI, Form, HTTPException, Query, Request, Respo
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
@@ -664,6 +665,7 @@ def _metron_search_json(name: str, db: Session) -> list[dict]:
                 "year_began": r.year_began,
                 "issue_count": r.issue_count,
                 "series_type": r.series_type,
+                "cv_id": r.cv_id,
                 "image": r.image_url or "",
             }
             for r in cache_rows
@@ -680,6 +682,7 @@ def _metron_search_json(name: str, db: Session) -> list[dict]:
             "year_began": s.get("year_began"),
             "issue_count": s.get("issue_count"),
             "series_type": (s.get("series_type") or {}).get("name") if isinstance(s.get("series_type"), dict) else s.get("series_type"),
+            "cv_id": s.get("cv_id"),
             "image": _extract_img(s.get("image")) or "",
         })
     return out
@@ -1407,6 +1410,48 @@ class SeriesUpdate(BaseModel):
     getcomics_search_name: str | None = None
     issue_min: int = 1
 
+    @field_validator("publisher", "series_name")
+    @classmethod
+    def _nonblank(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("must not be empty")
+        return v
+
+
+class SeriesCreate(SeriesUpdate):
+    """Validated payload for adding a series (POST /api/series)."""
+    cover_image_url: str | None = None
+    total_issues: int | None = None
+
+
+@app.post("/api/series", status_code=201)
+def api_create_series(payload: SeriesCreate, db: Session = Depends(get_db)):
+    s = Series(
+        publisher=payload.publisher.strip(),
+        series_name=payload.series_name.strip(),
+        year=payload.year,
+        comicvine_volume_id=payload.comicvine_volume_id,
+        metron_series_id=payload.metron_series_id,
+        metron_annual_series_id=payload.metron_annual_series_id,
+        annual_comicvine_volume_id=payload.annual_comicvine_volume_id,
+        getcomics_search_name=(payload.getcomics_search_name or "").strip() or None,
+        cover_image_url=(payload.cover_image_url or "").strip() or None,
+        total_issues=payload.total_issues,
+        issue_min=payload.issue_min,
+    )
+    db.add(s)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="A series with this publisher, name and year already exists.",
+        )
+    db.refresh(s)
+    return _series_dict(s)
+
 
 @app.get("/api/series/{series_id}")
 def api_get_series(series_id: int, db: Session = Depends(get_db)):
@@ -1430,7 +1475,14 @@ def api_update_series(series_id: int, payload: SeriesUpdate, db: Session = Depen
     s.annual_comicvine_volume_id = payload.annual_comicvine_volume_id
     s.getcomics_search_name = (payload.getcomics_search_name or "").strip() or None
     s.issue_min = payload.issue_min
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="A series with this publisher, name and year already exists.",
+        )
     db.refresh(s)
     return _series_dict(s)
 

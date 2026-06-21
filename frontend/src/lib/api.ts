@@ -78,7 +78,13 @@ export interface MetronResult {
   year_began: number | null
   issue_count: number | null
   series_type: string | null
+  cv_id: number | null
   image: string
+}
+
+export interface SeriesCreate extends SeriesUpdate {
+  cover_image_url: string | null
+  total_issues: number | null
 }
 
 export interface VerifyResult {
@@ -93,6 +99,13 @@ export const getSeries = (id: number) => http<Series>(`/api/series/${id}`)
 export const updateSeries = (id: number, payload: SeriesUpdate) =>
   http<Series>(`/api/series/${id}`, {
     method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  })
+
+export const createSeries = (payload: SeriesCreate) =>
+  http<Series>("/api/series", {
+    method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   })

@@ -118,3 +118,22 @@ that silently matched `frontend/src/lib/` → `api.ts`/`theme.ts`/`utils.ts` wer
 (§3). Build passed locally only because the files exist on disk; a clean clone would have failed. Fixed by
 appending `!frontend/src/lib/` negations; this commit restores the three files. Lesson: after a commit that
 adds a new dir, `git ls-files <path>` to confirm new files actually landed — gitignore can eat them invisibly.
+
+## §5 — Page 3 (Add series)
+
+**Backend:** `POST /api/series` (validated `SeriesCreate(SeriesUpdate)` model + cover/total_issues) returning
+the created series; added `cv_id` to `_metron_search_json` so the SPA prefills the CV Volume ID directly from
+the selected search result — no separate add-form endpoint needed (the Jinja `/add-form` route stays for the
+old UI).
+
+**Frontend:** `SeriesAdd` (`/series/add`) — two-step: debounced Metron search (reuses `/api/metron/results`)
+→ result cards → Select → prefilled form (cover header, publisher/name/year/metron_id/cv_id, getcomics
+verify) → POST create → toast + navigate to /series. Extracted shared `components/Field.tsx` (now used by
+both Add and Edit — removed Edit's inline copy).
+
+**Gate:** `npm run build` ✅. Live-verified: search returns cards, Select prefills (metron_id 9001, publisher,
+year), form matches add_form.html, nav "Add Series" active. CodeRabbit: 3 majors, all fixed —
+(1) blank publisher/series_name now rejected by a `field_validator` on `SeriesUpdate` (covers create+update,
+the trust-boundary validation the SPA's Zod can't enforce server-side); (2) duplicate (publisher,name,year)
+→ caught `IntegrityError` → 409 instead of 500 (both create + update); (3) `intOrNull` could emit NaN→null
+silently → hardened to a shared `parseIntOrNull` in lib/utils (used by Add + Edit).

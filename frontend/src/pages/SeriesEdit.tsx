@@ -16,6 +16,8 @@ import {
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card } from "@/components/ui/card"
+import { Field } from "@/components/Field"
+import { parseIntOrNull } from "@/lib/utils"
 
 const schema = z.object({
   publisher: z.string().trim().min(1, "Publisher is required"),
@@ -32,7 +34,7 @@ const schema = z.object({
 })
 type FormValues = z.infer<typeof schema>
 
-const intOrNull = (v: string) => (v.trim() === "" ? null : Number(v))
+const intOrNull = parseIntOrNull
 const str = (n: number | null | undefined) => (n == null ? "" : String(n))
 
 export function SeriesEdit() {
@@ -293,25 +295,5 @@ function EditForm({
         </form>
       </Card>
     </>
-  )
-}
-
-function Field({
-  label,
-  error,
-  className,
-  children,
-}: {
-  label: string
-  error?: string
-  className?: string
-  children: React.ReactNode
-}) {
-  return (
-    <div className={className}>
-      <label className="text-sm font-medium">{label}</label>
-      <div className="mt-1.5">{children}</div>
-      {error && <p className="mt-1 text-xs text-destructive">{error}</p>}
-    </div>
   )
 }
