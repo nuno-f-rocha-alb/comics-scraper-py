@@ -13,6 +13,7 @@ from fastapi import Depends, FastAPI, Form, HTTPException, Query, Request, Respo
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from pydantic import BaseModel
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
@@ -642,6 +643,57 @@ def metron_search_pick(request: Request, name: str = "", field: str = "", db: Se
         )
 
 
+def _metron_search_json(name: str, db: Session) -> list[dict]:
+    """Normalised Metron series search for the SPA — cache first, API fallback.
+    One flat shape regardless of source: id, name, publisher, year_began,
+    issue_count, series_type, image."""
+    name = name.strip()
+    if len(name) < 2:
+        return []
+    terms = name.split()
+    cache_q = db.query(MetronCache)
+    for term in terms:
+        cache_q = cache_q.filter(MetronCache.name.ilike(f"%{term}%"))
+    cache_rows = cache_q.order_by(MetronCache.year_began.desc()).limit(20).all()
+    if cache_rows:
+        return [
+            {
+                "id": r.metron_id,
+                "name": r.name,
+                "publisher": r.publisher_name,
+                "year_began": r.year_began,
+                "issue_count": r.issue_count,
+                "series_type": r.series_type,
+                "image": r.image_url or "",
+            }
+            for r in cache_rows
+        ]
+    from config import METRON_BASE_URL
+    from metadata.metron_client import get as metron_get
+    r = metron_get(f"{METRON_BASE_URL}/series/", name=name)
+    out = []
+    for s in r.json().get("results", []):
+        out.append({
+            "id": s.get("id"),
+            "name": s.get("series") or s.get("name"),
+            "publisher": (s.get("publisher") or {}).get("name") if isinstance(s.get("publisher"), dict) else s.get("publisher"),
+            "year_began": s.get("year_began"),
+            "issue_count": s.get("issue_count"),
+            "series_type": (s.get("series_type") or {}).get("name") if isinstance(s.get("series_type"), dict) else s.get("series_type"),
+            "image": _extract_img(s.get("image")) or "",
+        })
+    return out
+
+
+@app.get("/api/metron/results")
+def api_metron_results(name: str = "", db: Session = Depends(get_db)):
+    """JSON Metron search backing the React add/edit forms."""
+    try:
+        return {"results": _metron_search_json(name, db)}
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Metron search error: {exc}")
+
+
 @app.get("/api/metron/series/{metron_id}/cover", response_class=HTMLResponse)
 def metron_series_cover(metron_id: int, db: Session = Depends(get_db)):
     img = _ensure_cover_cached(metron_id, db)
@@ -856,6 +908,25 @@ def sync_covers(db: Session = Depends(get_db)):
 
 # ── Verify search ──────────────────────────────────────────────────────────────
 
+def _getcomics_verify(search_term: str) -> list[dict]:
+    """Live getcomics.org page-1 check — returns up to 10 {title, url}."""
+    import requests as req_lib
+    from bs4 import BeautifulSoup
+    from config import BASE_SEARCH_URL, HEADERS
+
+    url = f"{BASE_SEARCH_URL.format(1)}{search_term.replace(' ', '+')}"
+    r = req_lib.get(url, headers=HEADERS, timeout=10)
+    if r.status_code == 404 or "No Results Found" in r.text:
+        return []
+    soup = BeautifulSoup(r.text, "html.parser")
+    links = soup.select("div.post-info h1.post-title a")
+    return [
+        {"title": a.get_text(strip=True), "url": a["href"]}
+        for a in links[:10]
+        if a.get("href")
+    ]
+
+
 @app.get("/api/verify-search", response_class=HTMLResponse)
 def verify_search(
     request: Request,
@@ -866,18 +937,7 @@ def verify_search(
     if not search_term:
         return HTMLResponse("")
     try:
-        import requests as req_lib
-        from bs4 import BeautifulSoup
-        from config import BASE_SEARCH_URL, HEADERS
-
-        url = f"{BASE_SEARCH_URL.format(1)}{search_term.replace(' ', '+')}"
-        r = req_lib.get(url, headers=HEADERS, timeout=10)
-        if r.status_code == 404 or "No Results Found" in r.text:
-            comics = []
-        else:
-            soup = BeautifulSoup(r.text, "html.parser")
-            links = soup.select("div.post-info h1.post-title a")
-            comics = [{"title": a.get_text(strip=True), "url": a["href"]} for a in links[:10]]
+        comics = _getcomics_verify(search_term)
         return templates.TemplateResponse(
             "partials/verify_results.html",
             {"request": request, "comics": comics, "search_term": search_term},
@@ -886,6 +946,18 @@ def verify_search(
         return HTMLResponse(
             f'<div class="alert alert-danger mt-2 py-2 small">Verify error: {exc}</div>'
         )
+
+
+@app.get("/api/verify-search/json")
+def verify_search_json(getcomics_search_name: str = "", series_name: str = ""):
+    """JSON getcomics verify backing the React add/edit forms."""
+    search_term = getcomics_search_name.strip() or series_name.strip()
+    if not search_term:
+        return {"search_term": "", "comics": []}
+    try:
+        return {"search_term": search_term, "comics": _getcomics_verify(search_term)}
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Verify error: {exc}")
 
 
 # ── Download queue ────────────────────────────────────────────────────────────
@@ -1302,6 +1374,65 @@ def api_series_overview(db: Session = Depends(get_db)):
         ],
         "stats": stats,
     }
+
+
+def _series_dict(s: Series) -> dict:
+    """Editable/displayable fields for a single series (JSON API)."""
+    return {
+        "id": s.id,
+        "publisher": s.publisher,
+        "series_name": s.series_name,
+        "year": s.year,
+        "comicvine_volume_id": s.comicvine_volume_id,
+        "metron_series_id": s.metron_series_id,
+        "metron_annual_series_id": s.metron_annual_series_id,
+        "annual_comicvine_volume_id": s.annual_comicvine_volume_id,
+        "getcomics_search_name": s.getcomics_search_name,
+        "issue_min": s.issue_min,
+        "cover_image_url": s.cover_image_url,
+        "total_issues": s.total_issues,
+        "enabled": s.enabled,
+    }
+
+
+class SeriesUpdate(BaseModel):
+    """Validated payload for editing a series (PUT /api/series/{id})."""
+    publisher: str
+    series_name: str
+    year: int | None = None
+    comicvine_volume_id: int | None = None
+    metron_series_id: int | None = None
+    metron_annual_series_id: int | None = None
+    annual_comicvine_volume_id: int | None = None
+    getcomics_search_name: str | None = None
+    issue_min: int = 1
+
+
+@app.get("/api/series/{series_id}")
+def api_get_series(series_id: int, db: Session = Depends(get_db)):
+    s = db.query(Series).filter(Series.id == series_id).first()
+    if not s:
+        raise HTTPException(status_code=404)
+    return _series_dict(s)
+
+
+@app.put("/api/series/{series_id}")
+def api_update_series(series_id: int, payload: SeriesUpdate, db: Session = Depends(get_db)):
+    s = db.query(Series).filter(Series.id == series_id).first()
+    if not s:
+        raise HTTPException(status_code=404)
+    s.publisher = payload.publisher.strip()
+    s.series_name = payload.series_name.strip()
+    s.year = payload.year
+    s.comicvine_volume_id = payload.comicvine_volume_id
+    s.metron_series_id = payload.metron_series_id
+    s.metron_annual_series_id = payload.metron_annual_series_id
+    s.annual_comicvine_volume_id = payload.annual_comicvine_volume_id
+    s.getcomics_search_name = (payload.getcomics_search_name or "").strip() or None
+    s.issue_min = payload.issue_min
+    db.commit()
+    db.refresh(s)
+    return _series_dict(s)
 
 
 @app.get("/series/add", response_class=HTMLResponse)

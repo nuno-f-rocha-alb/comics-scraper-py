@@ -191,3 +191,8 @@ graphify-out/
 coderabbit-gate.txt
 .claude/skills/
 frontend/mock_api.py
+
+# The Python-template lib/ and [Ll]ib rules above are unanchored and wrongly
+# match frontend/src/lib (TS source). Re-include the SPA's lib directory.
+!frontend/src/lib/
+!frontend/src/lib/**

@@ -91,3 +91,30 @@ Re-verified: only "Add Series" active on /series/add.
 Dev verification runtime: `frontend/mock_api.py` (stdlib, gitignored) seeds 6 series across all 5 statuses;
 preview via `.claude/launch.json` name `comics-frontend` (port 5173, proxy → mock on 8000). Real backend
 is Docker-only locally (sqlalchemy/comicapi not installed on host).
+
+## §4 — Page 2 (Series edit) + shared form JSON infra
+
+**Backend (new JSON, Jinja endpoints untouched):**
+- `GET /api/series/{id}` + `PUT /api/series/{id}` — single-series read/update. PUT takes a validated
+  `SeriesUpdate` Pydantic model (input at trust boundary → validation kept, unlike the overview *response*
+  which stays a plain dict). Shared `_series_dict(s)` serializer.
+- `GET /api/metron/results?name=` — normalised Metron search (one flat shape from cache OR API fallback)
+  via new `_metron_search_json`. The HTML `/api/metron/search` + `search-pick` left as-is to avoid
+  destabilising the Jinja path (their cache/API result shapes differ; templates handle both).
+- `GET /api/verify-search/json` — getcomics page-1 verify; extracted pure `_getcomics_verify(term)` now
+  shared by both the HTML and JSON endpoints.
+
+**Frontend:** `SeriesEdit` page (`/series/:id/edit`) — RHF + Zod, prefill via `key={id}` remount so the
+form mounts once with values (avoids the controlled-input prefill race). Inline Metron annual search
+(debounced TanStack query → click sets the ID), getcomics Verify (lists page-1 hits), issue_min with the
+"currently #N" helper. Save → PUT → invalidate overview+detail → navigate to detail.
+
+**Gate:** `npm run build` ✅. Live-verified light+dark: prefill correct, annual search returns + click sets
+ID 9001, Verify lists results, nav "Series" active on /series/:id/edit (not "Add Series"). CodeRabbit: 1
+minor (`a["href"]` KeyError in `_getcomics_verify`) → fixed with `if a.get("href")` guard.
+
+**Root cause caught this page:** the Python-template `.gitignore` has unanchored `lib/` + `[Ll]ib` rules
+that silently matched `frontend/src/lib/` → `api.ts`/`theme.ts`/`utils.ts` were NOT committed in Page 1
+(§3). Build passed locally only because the files exist on disk; a clean clone would have failed. Fixed by
+appending `!frontend/src/lib/` negations; this commit restores the three files. Lesson: after a commit that
+adds a new dir, `git ls-files <path>` to confirm new files actually landed — gitignore can eat them invisibly.

@@ -5,6 +5,7 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom"
 import "./index.css"
 import { AppLayout } from "@/components/AppLayout"
 import { SeriesList } from "@/pages/SeriesList"
+import { SeriesEdit } from "@/pages/SeriesEdit"
 import { ComingSoon } from "@/pages/ComingSoon"
 import { Toaster } from "@/components/ui/sonner"
 
@@ -21,6 +22,7 @@ createRoot(document.getElementById("root")!).render(
             <Route path="/" element={<Navigate to="/series" replace />} />
             <Route path="/series" element={<SeriesList />} />
             <Route path="/series/add" element={<ComingSoon title="Add Series" />} />
+            <Route path="/series/:id/edit" element={<SeriesEdit />} />
             <Route path="/series/:id" element={<ComingSoon title="Series Detail" />} />
             <Route path="/calendar" element={<ComingSoon title="Calendar" />} />
             <Route path="/releases" element={<ComingSoon title="Releases" />} />
