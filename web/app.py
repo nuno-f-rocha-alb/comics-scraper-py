@@ -1329,6 +1329,51 @@ def scheduler_config(
         )
 
 
+# ── Scheduler JSON API (React) ──────────────────────────────────────────────────
+
+
+def _scheduler_status_json() -> dict:
+    from web.scheduler import get_status
+    st = get_status()
+    return {
+        "running": st["running"],
+        "last_run_at": st["last_run_at"].isoformat() if st["last_run_at"] else None,
+        "last_run_error": st["last_run_error"],
+        "next_run_at": st["next_run_at"].isoformat() if st["next_run_at"] else None,
+        "mode": st["mode"],
+        "value": st["value"],
+    }
+
+
+class ScheduleConfig(BaseModel):
+    mode: str
+    value: str
+
+
+@app.get("/api/scheduler/status")
+def api_scheduler_status():
+    return _scheduler_status_json()
+
+
+@app.post("/api/scheduler/run")
+def api_scheduler_run():
+    from web.scheduler import is_running, trigger_now
+    if is_running():
+        return {"started": False, **_scheduler_status_json()}
+    trigger_now()
+    return {"started": True, **_scheduler_status_json()}
+
+
+@app.post("/api/scheduler/config")
+def api_scheduler_config(payload: ScheduleConfig):
+    from web.scheduler import update_schedule
+    try:
+        update_schedule(payload.mode.strip(), payload.value.strip())
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return _scheduler_status_json()
+
+
 # ── HTML pages ─────────────────────────────────────────────────────────────────
 
 @app.get("/", response_class=HTMLResponse)

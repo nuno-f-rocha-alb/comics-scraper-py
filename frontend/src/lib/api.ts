@@ -246,6 +246,21 @@ export const getLibraryStatus = () => http<ScanStatus>("/api/library/status")
 export const startLibraryScan = (force: boolean) =>
   http<ScanStatus & { started: boolean }>(`/api/library/scan?force=${force}`, { method: "POST" })
 
+// ── Scheduler ─────────────────────────────────────────────────────────────────
+export interface SchedulerStatus {
+  running: boolean
+  last_run_at: string | null
+  last_run_error: string | null
+  next_run_at: string | null
+  mode: "interval" | "cron"
+  value: string
+}
+export const getSchedulerStatus = () => http<SchedulerStatus>("/api/scheduler/status")
+export const runSchedulerNow = () =>
+  http<{ started: boolean } & SchedulerStatus>("/api/scheduler/run", { method: "POST" })
+export const saveSchedule = (mode: "interval" | "cron", value: string) =>
+  postJSON<SchedulerStatus>("/api/scheduler/config", { mode, value })
+
 // Form-post endpoints that redirect on success (cache refresh / cover sync).
 export const postAction = (url: string) =>
   fetch(url, { method: "POST" }).then((r) => {

@@ -10,6 +10,7 @@ import { SeriesAdd } from "@/pages/SeriesAdd"
 import { SeriesDetail } from "@/pages/SeriesDetail"
 import { Downloads } from "@/pages/Downloads"
 import { Library } from "@/pages/Library"
+import { Scheduler } from "@/pages/Scheduler"
 import { ComingSoon } from "@/pages/ComingSoon"
 import { Toaster } from "@/components/ui/sonner"
 
@@ -31,7 +32,7 @@ createRoot(document.getElementById("root")!).render(
             <Route path="/calendar" element={<ComingSoon title="Calendar" />} />
             <Route path="/releases" element={<ComingSoon title="Releases" />} />
             <Route path="/downloads" element={<Downloads />} />
-            <Route path="/scheduler" element={<ComingSoon title="Scheduler" />} />
+            <Route path="/scheduler" element={<Scheduler />} />
             <Route path="/library" element={<Library />} />
             <Route path="/logs" element={<ComingSoon title="Logs" />} />
             <Route path="*" element={<ComingSoon title="Not Found" />} />

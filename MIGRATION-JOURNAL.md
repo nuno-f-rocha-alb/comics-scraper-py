@@ -195,3 +195,15 @@ checkbox + Scan button (disabled while running).
 
 **Gate:** `npm run build` ✅. Live screenshot ✅ matches library.html (idle status, last-scan, controls).
 CodeRabbit: 3 — st.get("running") + explicit Query(force); skipped progress.current OR (it is a string, not numeric 0).
+
+## §9 — Page 7 (Scheduler)
+
+**Backend:** `GET /api/scheduler/status`, `POST /api/scheduler/run` ({started}+status), `POST
+/api/scheduler/config` (validated `ScheduleConfig` model → update_schedule, 400 on bad cron) via shared
+`_scheduler_status_json()`. Jinja routes untouched.
+
+**Frontend:** `Scheduler` page (`/scheduler`) — Status (idle/running, last/next run + error, Run Now,
+poll 3s) + Schedule config (mode interval|cron, hours input or cron expression w/ crontab.guru link,
+Save). Form seeded once from server config.
+
+**Gate:** `npm run build` ✅. Live screenshot ✅ matches scheduler.html. CodeRabbit: 2 minor — saveSchedule mode literal type + label htmlFor a11y (mode/interval/cron). Fixed.
