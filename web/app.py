@@ -3179,3 +3179,95 @@ async def log_settings_save(request: Request, db: Session = Depends(get_db)):
         "partials/toast.html",
         {"request": request, "kind": "success", "message": f"Retention set to {days} days."},
     )
+
+
+# ── Log viewer — JSON endpoints (SPA) ────────────────────────────────────────
+
+
+def _classify_log_line(line: str) -> str:
+    """Mirror partials/log_stream.html line-class logic. Single source of truth
+    for both the Jinja template and the SPA terminal colours."""
+    if " - ERROR - " in line:
+        return "error"
+    if " - WARNING - " in line:
+        return "warning"
+    if "Tagged " in line or "Writing metadata" in line or "Downloading" in line:
+        return "meta"
+    low = line.lower()
+    if "download" in low or "cbz" in low:
+        return "dl"
+    return "info"
+
+
+class LogSettings(BaseModel):
+    log_retention_days: int
+
+
+@app.get("/api/logs")
+def api_logs(db: Session = Depends(get_db)):
+    files = _log_files()
+    current = _current_log_path()
+    current_name = os.path.basename(current) if current else (files[0]["name"] if files else "")
+    return {
+        "files": [{"name": f["name"], "size": f["size"]} for f in files],
+        "current_name": current_name,
+        "retention_days": int(_get_log_setting(db, "log_retention_days", "7")),
+        "lines_default": _LOG_LINES_DEFAULT,
+    }
+
+
+@app.get("/api/logs/files")
+def api_logs_files():
+    return {"files": [{"name": f["name"], "size": f["size"]} for f in _log_files()]}
+
+
+@app.get("/api/logs/stream")
+def api_logs_stream(filename: str = "", lines: int = _LOG_LINES_DEFAULT, level: str = ""):
+    lines = min(max(1, lines), 10000)  # cap so a client can't request unbounded tail into memory
+    path = os.path.join(LOG_DIR, os.path.basename(filename)) if filename else _current_log_path()
+    if not path or not os.path.isfile(path):
+        return {"filename": filename, "lines": []}
+    raw = _read_tail(path, lines)
+    if level:
+        raw = [l for l in raw if f" - {level.upper()} - " in l]
+    return {
+        "filename": os.path.basename(path),
+        "lines": [{"text": l, "cls": _classify_log_line(l)} for l in raw],
+    }
+
+
+@app.get("/api/logs/{filename}/download")
+def api_log_download(filename: str):
+    safe = os.path.basename(filename)
+    path = os.path.join(LOG_DIR, safe)
+    if not os.path.isfile(path):
+        raise HTTPException(status_code=404)
+    return FileResponse(path, media_type="text/plain", filename=safe)
+
+
+@app.delete("/api/logs/{filename}")
+def api_log_delete(filename: str):
+    safe = os.path.basename(filename)
+    path = os.path.join(LOG_DIR, safe)
+    if os.path.normpath(path) == os.path.normpath(_current_log_path() or ""):
+        raise HTTPException(status_code=409, detail="Cannot delete the active log file.")
+    if not os.path.isfile(path):
+        raise HTTPException(status_code=404)
+    try:
+        os.remove(path)
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+    return {"deleted": 1}
+
+
+@app.post("/api/logs/cleanup")
+def api_log_cleanup(db: Session = Depends(get_db)):
+    retention = int(_get_log_setting(db, "log_retention_days", "7"))
+    return {"deleted": _cleanup_old_logs(retention)}
+
+
+@app.post("/api/logs/settings")
+def api_log_settings(payload: LogSettings, db: Session = Depends(get_db)):
+    days = max(1, payload.log_retention_days)
+    _set_log_setting(db, "log_retention_days", str(days))
+    return {"retention_days": days}

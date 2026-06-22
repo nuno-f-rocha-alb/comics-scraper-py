@@ -305,6 +305,37 @@ export interface CalendarData {
 export const getCalendar = (view: "month" | "week", date: string) =>
   http<CalendarData>(`/api/calendar?view=${view}${date ? `&date=${date}` : ""}`)
 
+// ── Logs ──────────────────────────────────────────────────────────────────────
+export type LogLineClass = "error" | "warning" | "meta" | "dl" | "info"
+export interface LogLine {
+  text: string
+  cls: LogLineClass
+}
+export interface LogFile {
+  name: string
+  size: number
+}
+export interface LogsInfo {
+  files: LogFile[]
+  current_name: string
+  retention_days: number
+  lines_default: number
+}
+export const getLogs = () => http<LogsInfo>("/api/logs")
+export const getLogFiles = () => http<{ files: LogFile[] }>("/api/logs/files")
+export const getLogStream = (filename: string, lines: number, level: string) =>
+  http<{ filename: string; lines: LogLine[] }>(
+    `/api/logs/stream?filename=${encodeURIComponent(filename)}&lines=${lines}&level=${encodeURIComponent(level)}`,
+  )
+export const deleteLog = (filename: string) =>
+  http<{ deleted: number }>(`/api/logs/${encodeURIComponent(filename)}`, { method: "DELETE" })
+export const cleanupLogs = () =>
+  http<{ deleted: number }>("/api/logs/cleanup", { method: "POST" })
+export const saveLogSettings = (log_retention_days: number) =>
+  postJSON<{ retention_days: number }>("/api/logs/settings", { log_retention_days })
+export const logDownloadUrl = (filename: string) =>
+  `/api/logs/${encodeURIComponent(filename)}/download`
+
 // Form-post endpoints that redirect on success (cache refresh / cover sync).
 export const postAction = (url: string) =>
   fetch(url, { method: "POST" }).then((r) => {

@@ -13,6 +13,7 @@ import { Library } from "@/pages/Library"
 import { Scheduler } from "@/pages/Scheduler"
 import { Releases } from "@/pages/Releases"
 import { Calendar } from "@/pages/Calendar"
+import { Logs } from "@/pages/Logs"
 import { ComingSoon } from "@/pages/ComingSoon"
 import { Toaster } from "@/components/ui/sonner"
 
@@ -36,7 +37,7 @@ createRoot(document.getElementById("root")!).render(
             <Route path="/downloads" element={<Downloads />} />
             <Route path="/scheduler" element={<Scheduler />} />
             <Route path="/library" element={<Library />} />
-            <Route path="/logs" element={<ComingSoon title="Logs" />} />
+            <Route path="/logs" element={<Logs />} />
             <Route path="*" element={<ComingSoon title="Not Found" />} />
           </Route>
         </Routes>
