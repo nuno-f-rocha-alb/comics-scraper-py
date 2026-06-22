@@ -335,3 +335,35 @@ NaN hardening; per-open form prefill via ref so background refetches can't clobb
 sign-off); SPA bundle is one 622 kB chunk (code-splitting not pursued — YAGNI until it matters); the backend
 `/app` StaticFiles mount itself is only verifiable in Docker (sqlalchemy/comicapi are Docker-only on the host),
 so it was validated via a stdlib replica of the serving contract rather than a live uvicorn.
+
+## §15 — Retire the Jinja UI · SPA promoted to `/`
+
+Parity signed off (verified `/series` Jinja vs `/app/series` SPA side-by-side on the live container). Cut over:
+
+**SPA to root:** Vite `base` back to `/` (was the build-only `/app/`); the StaticFiles mount moved `/app/assets`
+→ `/assets` and the catch-all `/app/{path}` → `/{full_path:path}`. The catch-all is registered LAST and now
+**guards the API namespace**: `full_path == "health" or startswith(("api/","assets/")) → 404`, so an unmatched
+`/api/*` returns JSON 404 instead of silently serving the SPA shell. Router basename derives from
+`import.meta.env.BASE_URL` (`/` now), no main.tsx change needed.
+
+**Jinja removal (mechanical + audited):** used `ast` to find the exact line ranges of every top-level
+`@app.<verb>` route whose path isn't `/api*`/`/health`, and removed all **51** of them (~1030 lines) — Jinja
+pages, HTMX partials, and the duplicate non-`/api` handlers (every one had a kept `/api` twin). Also removed
+the 4 `/api` routes that *rendered Jinja* (`metron/search`, `search-pick`, `add-form`, `verify-search` — SPA
+uses their JSON twins) and 2 dead HTML-fragment endpoints (`metron/.../cover`, `batch-covers`). Deleted
+`web/templates/` + `web/static/`, the `Jinja2Templates`/`templates` setup, the `/static` mount, the
+`fmt_date`/`is_future` filters, and now-unused imports (`json`, `Form`, `quote`, `Request`, `Response`,
+`HTMLResponse`, `RedirectResponse`).
+
+**Root-cause caught by the gate:** `pyflakes` flagged `undefined name 'monitor_all'/'unmonitor_all'` — the kept
+`/api/.../monitor-all` routes had *delegated* to the Jinja handlers I'd just deleted (per §6's "reuse the HTML
+handler's DB logic"). Inlined that logic into the `/api` routes (returning JSON). Without the lint this would
+have been a runtime 500 only discoverable in Docker. Also converted the 3 `/api` cache-refresh/sync-covers
+handlers that `RedirectResponse`'d to the now-deleted `/series` page → plain JSON `{"msg": ...}` (the SPA's
+`postAction` ignores the body, only checks `r.ok`).
+
+**Gate:** `ast.parse` ✅ · `pyflakes` clean ✅ · `npm run build` ✅ (`index.html` refs `/assets/*`, `/favicon.svg`)
+· root serving contract verified via stdlib replica (shell at `/`, `/series`→shell fallback, asset served,
+unmatched `/api/*`→404 not shell, traversal blocked) · live: SPA mounts at `/`, 9 cards, no console errors.
+CodeRabbit: 0 (the 1 finding was a markdown nit in the untracked `decisions.md`, not this change). Backend mount
+still only fully testable in Docker. **One UI now; legacy gone.**

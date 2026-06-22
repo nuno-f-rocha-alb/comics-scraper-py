@@ -1,18 +1,14 @@
-import json
 import logging
 import os
 import re
 from contextlib import asynccontextmanager
 from calendar import monthrange
 from datetime import date, datetime, timedelta, timezone
-from urllib.parse import quote
-
 log = logging.getLogger(__name__)
 
-from fastapi import Depends, FastAPI, Form, HTTPException, Query, Request, Response
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, field_validator
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import or_
@@ -33,31 +29,6 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Comics Scraper", lifespan=lifespan)
-app.mount("/static", StaticFiles(directory="web/static"), name="static")
-templates = Jinja2Templates(directory="web/templates")
-
-
-def _fmt_date(value: str) -> str:
-    if not value:
-        return ""
-    try:
-        d = date.fromisoformat(str(value)[:10])
-        return d.strftime("%b %d, %Y")
-    except ValueError:
-        return str(value)
-
-
-def _is_future(value: str) -> bool:
-    if not value:
-        return False
-    try:
-        return date.fromisoformat(str(value)[:10]) > date.today()
-    except ValueError:
-        return False
-
-
-templates.env.filters["fmt_date"] = _fmt_date
-templates.env.filters["is_future"] = _is_future
 
 
 def get_db():
@@ -538,110 +509,8 @@ def api_list_series(db: Session = Depends(get_db)):
 
 # ── Metron search proxy ────────────────────────────────────────────────────────
 
-@app.get("/api/metron/search", response_class=HTMLResponse)
-def metron_search(request: Request, name: str = "", db: Session = Depends(get_db)):
-    name = name.strip()
-    if len(name) < 2:
-        return HTMLResponse("")
-
-    # Search MetronCache locally — zero API calls when cache is populated
-    terms = name.split()
-    cache_q = db.query(MetronCache)
-    for term in terms:
-        cache_q = cache_q.filter(MetronCache.name.ilike(f"%{term}%"))
-    cache_rows = cache_q.order_by(MetronCache.year_began.desc()).limit(20).all()
-
-    if cache_rows:
-        results = [
-            {
-                "id": r.metron_id,
-                "name": r.name,
-                "publisher": {"name": r.publisher_name} if r.publisher_name else None,
-                "year_began": r.year_began,
-                "issue_count": r.issue_count,
-                "image": r.image_url or "",
-            }
-            for r in cache_rows
-        ]
-        uncached_ids = [r.metron_id for r in cache_rows if r.image_url is None]
-        return templates.TemplateResponse(
-            "partials/metron_results.html",
-            {"request": request, "results": results, "query": name, "uncached_ids": uncached_ids},
-        )
-
-    # Fall back to Metron API (cache empty or no match)
-    try:
-        from config import METRON_BASE_URL
-        from metadata.metron_client import get as metron_get
-        r = metron_get(f"{METRON_BASE_URL}/series/", name=name)
-        results = r.json().get("results", [])
-        uncached_ids = []
-        if results:
-            ids = [s["id"] for s in results if s.get("id")]
-            cached_map = {
-                c.metron_id: c
-                for c in db.query(MetronCache).filter(MetronCache.metron_id.in_(ids)).all()
-            }
-            for s in results:
-                sid = s.get("id")
-                c = cached_map.get(sid)
-                if c and c.image_url:
-                    s["image"] = c.image_url
-                elif not _extract_img(s.get("image")):
-                    uncached_ids.append(sid)
-        return templates.TemplateResponse(
-            "partials/metron_results.html",
-            {"request": request, "results": results, "query": name, "uncached_ids": uncached_ids},
-        )
-    except Exception as exc:
-        return HTMLResponse(
-            f'<div class="alert alert-danger mt-2">Metron search error: {exc}</div>'
-        )
 
 
-@app.get("/api/metron/search-pick", response_class=HTMLResponse)
-def metron_search_pick(request: Request, name: str = "", field: str = "", db: Session = Depends(get_db)):
-    name = name.strip()
-    if len(name) < 2:
-        return HTMLResponse("")
-
-    # Search MetronCache locally — zero API calls when cache is populated
-    terms = name.split()
-    cache_q = db.query(MetronCache)
-    for term in terms:
-        cache_q = cache_q.filter(MetronCache.name.ilike(f"%{term}%"))
-    cache_rows = cache_q.order_by(MetronCache.year_began.desc()).limit(20).all()
-
-    if cache_rows:
-        results = [
-            {
-                "id": r.metron_id,
-                "name": r.name,
-                "publisher": {"name": r.publisher_name} if r.publisher_name else None,
-                "year_began": r.year_began,
-                "series_type": {"name": r.series_type} if r.series_type else None,
-            }
-            for r in cache_rows
-        ]
-        return templates.TemplateResponse(
-            "partials/metron_pick_results.html",
-            {"request": request, "results": results, "field": field},
-        )
-
-    # Fall back to Metron API (cache empty or no match)
-    try:
-        from config import METRON_BASE_URL
-        from metadata.metron_client import get as metron_get
-        r = metron_get(f"{METRON_BASE_URL}/series/", name=name)
-        results = r.json().get("results", [])
-        return templates.TemplateResponse(
-            "partials/metron_pick_results.html",
-            {"request": request, "results": results, "field": field},
-        )
-    except Exception as exc:
-        return HTMLResponse(
-            f'<div class="alert alert-danger mt-2 small">Search error: {exc}</div>'
-        )
 
 
 def _metron_search_json(name: str, db: Session) -> list[dict]:
@@ -697,35 +566,6 @@ def api_metron_results(name: str = "", db: Session = Depends(get_db)):
         raise HTTPException(status_code=502, detail=f"Metron search error: {exc}")
 
 
-@app.get("/api/metron/series/{metron_id}/cover", response_class=HTMLResponse)
-def metron_series_cover(metron_id: int, db: Session = Depends(get_db)):
-    img = _ensure_cover_cached(metron_id, db)
-    if img:
-        return HTMLResponse(f'<img src="{img}" class="cover-img" alt="">')
-    return HTMLResponse('<div class="cover-placeholder"><i class="bi bi-book"></i></div>')
-
-
-@app.get("/api/metron/batch-covers", response_class=HTMLResponse)
-def metron_batch_covers(ids: str = "", db: Session = Depends(get_db)):
-    """Fetch/cache covers for multiple series; returns HTMX OOB swap fragments."""
-    if not ids:
-        return HTMLResponse("")
-    id_list = [int(x) for x in ids.split(",") if x.strip().isdigit()]
-    parts: list[str] = []
-    for mid in id_list:
-        img = _ensure_cover_cached(mid, db)
-        if img:
-            parts.append(
-                f'<img id="cover-{mid}" src="{img}" class="cover-img" alt="" hx-swap-oob="true">'
-            )
-        else:
-            parts.append(
-                f'<div id="cover-{mid}" class="cover-placeholder" hx-swap-oob="true">'
-                f'<i class="bi bi-book"></i></div>'
-            )
-    return HTMLResponse("\n".join(parts))
-
-
 @app.post("/api/metron/cache/refresh")
 def metron_cache_refresh(db: Session = Depends(get_db)):
     """Paginate all Metron series and upsert metadata into local cache."""
@@ -741,7 +581,7 @@ def metron_cache_refresh(db: Session = Depends(get_db)):
             data = r.json()
         except Exception as exc:
             msg = f"Cache refresh stopped ({added} new, {updated} updated): {exc}"
-            return RedirectResponse(url=f"/series?msg={quote(msg)}", status_code=303)
+            return {"msg": msg}
 
         now = datetime.now(timezone.utc)
         for s in data.get("results", []):
@@ -821,36 +661,9 @@ def metron_cache_refresh(db: Session = Depends(get_db)):
     if issues_synced:
         parts.append(f"{issues_synced} issue lists cached")
     msg = ". ".join(parts) + "."
-    return RedirectResponse(url=f"/series?msg={quote(msg)}", status_code=303)
+    return {"msg": msg}
 
 
-@app.get("/api/metron/series/{metron_id}/add-form", response_class=HTMLResponse)
-def metron_series_add_form(request: Request, metron_id: int, db: Session = Depends(get_db)):
-    cached = db.get(MetronCache, metron_id)
-    if cached is not None:
-        data = {
-            "id": cached.metron_id,
-            "name": cached.name,
-            "image": cached.image_url or "",
-            "publisher": {"name": cached.publisher_name} if cached.publisher_name else None,
-            "year_began": cached.year_began,
-            "issue_count": cached.issue_count,
-            "cv_id": cached.cv_id,
-        }
-        return templates.TemplateResponse("partials/add_form.html", {"request": request, "series": data})
-    try:
-        from config import METRON_BASE_URL
-        from metadata.metron_client import get as metron_get
-        r = metron_get(f"{METRON_BASE_URL}/series/{metron_id}/")
-        data = r.json()
-        return templates.TemplateResponse(
-            "partials/add_form.html",
-            {"request": request, "series": data},
-        )
-    except Exception as exc:
-        return HTMLResponse(
-            f'<div class="alert alert-danger mt-2">Error loading series: {exc}</div>'
-        )
 
 
 # ── Cover + ID sync ────────────────────────────────────────────────────────────
@@ -906,7 +719,7 @@ def sync_covers(db: Session = Depends(get_db)):
     if updated_covers:
         parts.append(f"{updated_covers} covers synced")
     msg = ", ".join(parts) if parts else "Nothing to update."
-    return RedirectResponse(url=f"/series?msg={quote(msg)}", status_code=303)
+    return {"msg": msg}
 
 
 # ── Verify search ──────────────────────────────────────────────────────────────
@@ -930,25 +743,6 @@ def _getcomics_verify(search_term: str) -> list[dict]:
     ]
 
 
-@app.get("/api/verify-search", response_class=HTMLResponse)
-def verify_search(
-    request: Request,
-    getcomics_search_name: str = "",
-    series_name: str = "",
-):
-    search_term = getcomics_search_name.strip() or series_name.strip()
-    if not search_term:
-        return HTMLResponse("")
-    try:
-        comics = _getcomics_verify(search_term)
-        return templates.TemplateResponse(
-            "partials/verify_results.html",
-            {"request": request, "comics": comics, "search_term": search_term},
-        )
-    except Exception as exc:
-        return HTMLResponse(
-            f'<div class="alert alert-danger mt-2 py-2 small">Verify error: {exc}</div>'
-        )
 
 
 @app.get("/api/verify-search/json")
@@ -965,86 +759,10 @@ def verify_search_json(getcomics_search_name: str = "", series_name: str = ""):
 
 # ── Download queue ────────────────────────────────────────────────────────────
 
-@app.post("/series/{series_id}/monitor-all")
-def monitor_all(series_id: int, db: Session = Depends(get_db)):
-    s = db.query(Series).filter(Series.id == series_id).first()
-    if not s:
-        raise HTTPException(status_code=404)
-
-    def _insert_type(metron_series_id: int, issue_type: str) -> None:
-        rows = db.query(MetronIssueCache).filter(MetronIssueCache.series_id == metron_series_id).all()
-        existing = {
-            m.issue_number
-            for m in db.query(MonitoredIssue)
-                .filter(MonitoredIssue.series_id == series_id, MonitoredIssue.issue_type == issue_type)
-                .all()
-        }
-        for row in rows:
-            if not row.number:
-                continue
-            try:
-                norm = str(int(float(row.number)))
-            except (ValueError, TypeError):
-                norm = row.number
-            if norm not in existing:
-                db.add(MonitoredIssue(series_id=series_id, issue_number=norm, issue_type=issue_type))
-                existing.add(norm)
-
-    if s.metron_series_id:
-        _insert_type(s.metron_series_id, "regular")
-    if s.metron_annual_series_id:
-        _insert_type(s.metron_annual_series_id, "annual")
-    _recompute_pause_state(s, db)
-    db.commit()
-    return Response(status_code=200, headers={"HX-Trigger": "refresh-issues"})
 
 
-@app.delete("/series/{series_id}/monitor-all")
-def unmonitor_all(series_id: int, db: Session = Depends(get_db)):
-    db.query(MonitoredIssue).filter(MonitoredIssue.series_id == series_id).delete()
-    s = db.query(Series).filter(Series.id == series_id).first()
-    if s:
-        _recompute_pause_state(s, db)
-    db.commit()
-    return Response(status_code=200, headers={"HX-Trigger": "refresh-issues"})
 
 
-@app.post("/series/{series_id}/issues/{number}/monitor", response_class=HTMLResponse)
-def issue_monitor_toggle(
-    series_id: int,
-    number: str,
-    type: str = Query(default="regular"),
-    db: Session = Depends(get_db),
-):
-    s = db.query(Series).filter(Series.id == series_id).first()
-    if not s:
-        raise HTTPException(status_code=404)
-
-    issue_type = type if type in ("regular", "annual") else "regular"
-    try:
-        norm = str(int(float(number)))
-    except (ValueError, TypeError):
-        norm = number
-
-    existing = (
-        db.query(MonitoredIssue)
-        .filter(
-            MonitoredIssue.series_id == series_id,
-            MonitoredIssue.issue_number == norm,
-            MonitoredIssue.issue_type == issue_type,
-        )
-        .first()
-    )
-    if existing:
-        db.delete(existing)
-        monitored = False
-    else:
-        db.add(MonitoredIssue(series_id=series_id, issue_number=norm, issue_type=issue_type))
-        monitored = True
-    _recompute_pause_state(s, db)
-    db.commit()
-
-    return HTMLResponse(_monitor_btn(series_id, number, monitored, issue_type))
 
 
 def _monitor_btn(series_id: int, number: str, monitored: bool, issue_type: str = "regular") -> str:
@@ -1064,136 +782,18 @@ def _monitor_btn(series_id: int, number: str, monitored: bool, issue_type: str =
     )
 
 
-@app.post("/series/{series_id}/issues/{number}/download", response_class=HTMLResponse)
-def issue_download(series_id: int, number: str, db: Session = Depends(get_db)):
-    s = db.query(Series).filter(Series.id == series_id).first()
-    if not s:
-        raise HTTPException(status_code=404)
-
-    # Don't queue a duplicate for the same issue already in progress
-    existing = (
-        db.query(DownloadJob)
-        .filter(
-            DownloadJob.series_id == series_id,
-            DownloadJob.issue_number == number,
-            DownloadJob.status.in_(["queued", "downloading"]),
-        )
-        .first()
-    )
-    if not existing:
-        search_name = s.getcomics_search_name or s.series_name
-        job = DownloadJob(
-            series_id=series_id,
-            issue_number=number,
-            search_term=f"{search_name} #{number} ({s.year})",
-            status="queued",
-        )
-        db.add(job)
-        db.commit()
-        from web import worker
-        worker.enqueue(job.id)
-
-    return HTMLResponse(
-        '<span class="badge" style="background:rgba(255,193,7,0.15);color:#ffc107;">'
-        '<i class="bi bi-hourglass-split me-1"></i>Queued</span>'
-    )
 
 
-@app.get("/downloads", response_class=HTMLResponse)
-def downloads_page(request: Request, db: Session = Depends(get_db)):
-    jobs = (
-        db.query(DownloadJob)
-        .order_by(DownloadJob.created_at.desc())
-        .limit(200)
-        .all()
-    )
-    series_map = {s.id: s for s in db.query(Series).all()}
-    return templates.TemplateResponse(
-        "downloads.html",
-        {"request": request, "jobs": jobs, "series_map": series_map},
-    )
 
 
-@app.get("/downloads/active", response_class=HTMLResponse)
-def downloads_active(request: Request, db: Session = Depends(get_db)):
-    from web.worker import get_progress
-    active = (
-        db.query(DownloadJob)
-        .filter(DownloadJob.status.in_(["queued", "downloading"]))
-        .order_by(DownloadJob.created_at)
-        .all()
-    )
-    series_map = {s.id: s for s in db.query(Series).all()}
-    progress_map = {j.id: get_progress(j.id) for j in active}
-    return templates.TemplateResponse(
-        "partials/downloads_active.html",
-        {
-            "request": request,
-            "jobs": active,
-            "series_map": series_map,
-            "progress_map": progress_map,
-        },
-    )
 
 
-@app.delete("/downloads/{job_id}")
-def download_delete(job_id: int, db: Session = Depends(get_db)):
-    job = db.get(DownloadJob, job_id)
-    if job and job.status not in ("queued", "downloading"):
-        db.delete(job)
-        db.commit()
-    return Response(status_code=200)
 
 
-@app.post("/downloads/{job_id}/cancel")
-def download_cancel(job_id: int, db: Session = Depends(get_db)):
-    """Cancel a queued or in-flight job.
-
-    Queued: flip status to 'cancelled' directly; worker will skip it on pickup.
-    Downloading: request cancellation — the worker checks between HTTP calls
-    and inside the chunk loop and will abort within ~0.5MB.
-    """
-    from web.worker import request_cancel
-    job = db.get(DownloadJob, job_id)
-    if not job:
-        raise HTTPException(status_code=404)
-    if job.status == "queued":
-        job.status = "cancelled"
-        job.finished_at = datetime.now(timezone.utc)
-        db.commit()
-    elif job.status == "downloading":
-        request_cancel(job_id)
-    # done / failed / cancelled — nothing to do
-    return Response(status_code=200, headers={"HX-Trigger": "refresh-downloads"})
 
 
-@app.delete("/downloads", response_class=HTMLResponse)
-def downloads_clear(db: Session = Depends(get_db)):
-    db.query(DownloadJob).filter(
-        DownloadJob.status.in_(["done", "failed", "cancelled"])
-    ).delete()
-    db.commit()
-    return HTMLResponse(
-        '<tr><td colspan="7" class="text-center text-muted py-5">'
-        '<i class="bi bi-inbox fs-2 d-block mb-2 opacity-50"></i>'
-        'No downloads yet. Click Download on a missing issue to start.'
-        "</td></tr>"
-    )
 
 
-@app.get("/downloads/badge", response_class=HTMLResponse)
-def downloads_badge(db: Session = Depends(get_db)):
-    count = (
-        db.query(DownloadJob)
-        .filter(DownloadJob.status.in_(["queued", "downloading"]))
-        .count()
-    )
-    if count:
-        return HTMLResponse(
-            f'<span id="dl-badge" class="badge rounded-pill ms-auto"'
-            f' style="background:#0d6efd;font-size:0.65rem;">{count}</span>'
-        )
-    return HTMLResponse('<span id="dl-badge"></span>')
 
 
 # ── Downloads JSON API (React) ──────────────────────────────────────────────────
@@ -1289,44 +889,12 @@ def api_downloads_clear(db: Session = Depends(get_db)):
 
 # ── Scheduler ─────────────────────────────────────────────────────────────────
 
-@app.get("/scheduler", response_class=HTMLResponse)
-def scheduler_page(request: Request):
-    from web.scheduler import get_status
-    return templates.TemplateResponse(
-        "scheduler.html", {"request": request, "status": get_status()}
-    )
 
 
-@app.get("/scheduler/status", response_class=HTMLResponse)
-def scheduler_status(request: Request):
-    from web.scheduler import get_status
-    return templates.TemplateResponse(
-        "partials/scheduler_status.html", {"request": request, "status": get_status()}
-    )
 
 
-@app.post("/scheduler/run")
-def scheduler_run():
-    from web.scheduler import is_running, trigger_now
-    if not is_running():
-        trigger_now()
-    return RedirectResponse(url="/scheduler", status_code=303)
 
 
-@app.post("/scheduler/config")
-def scheduler_config(
-    mode: str = Form(...),
-    value: str = Form(...),
-):
-    from web.scheduler import update_schedule
-    try:
-        update_schedule(mode.strip(), value.strip())
-        msg = f"Schedule updated: {'every ' + value + 'h' if mode == 'interval' else value}"
-        return RedirectResponse(url=f"/scheduler?msg={quote(msg)}", status_code=303)
-    except Exception as exc:
-        return RedirectResponse(
-            url=f"/scheduler?error={quote(str(exc))}", status_code=303
-        )
 
 
 # ── Scheduler JSON API (React) ──────────────────────────────────────────────────
@@ -1376,9 +944,6 @@ def api_scheduler_config(payload: ScheduleConfig):
 
 # ── HTML pages ─────────────────────────────────────────────────────────────────
 
-@app.get("/", response_class=HTMLResponse)
-def root():
-    return RedirectResponse(url="/series")
 
 
 def _series_overview(db: Session):
@@ -1474,19 +1039,6 @@ def _series_overview(db: Session):
     return rows, local_counts, statuses, stats
 
 
-@app.get("/series", response_class=HTMLResponse)
-def series_list(request: Request, db: Session = Depends(get_db)):
-    rows, local_counts, statuses, stats = _series_overview(db)
-    return templates.TemplateResponse(
-        "series_list.html",
-        {
-            "request": request,
-            "series": rows,
-            "local_counts": local_counts,
-            "statuses": statuses,
-            "stats": stats,
-        },
-    )
 
 
 @app.get("/api/series/overview")
@@ -1623,117 +1175,18 @@ def api_update_series(series_id: int, payload: SeriesUpdate, db: Session = Depen
     return _series_dict(s)
 
 
-@app.get("/series/add", response_class=HTMLResponse)
-def series_add_page(request: Request):
-    return templates.TemplateResponse("series_add.html", {"request": request})
 
 
-@app.post("/series", response_class=HTMLResponse)
-def series_create(
-    db: Session = Depends(get_db),
-    publisher: str = Form(...),
-    series_name: str = Form(...),
-    year: str = Form(""),
-    comicvine_volume_id: str = Form(""),
-    metron_series_id: str = Form(""),
-    metron_annual_series_id: str = Form(""),
-    annual_comicvine_volume_id: str = Form(""),
-    getcomics_search_name: str = Form(""),
-    cover_image_url: str = Form(""),
-    total_issues: str = Form(""),
-    issue_min: str = Form("1"),
-):
-    s = Series(
-        publisher=publisher.strip(),
-        series_name=series_name.strip(),
-        year=int(year) if year.strip() else None,
-        comicvine_volume_id=int(comicvine_volume_id) if comicvine_volume_id.strip() else None,
-        metron_series_id=int(metron_series_id) if metron_series_id.strip() else None,
-        metron_annual_series_id=int(metron_annual_series_id) if metron_annual_series_id.strip() else None,
-        annual_comicvine_volume_id=int(annual_comicvine_volume_id) if annual_comicvine_volume_id.strip() else None,
-        getcomics_search_name=getcomics_search_name.strip() or None,
-        cover_image_url=cover_image_url.strip() or None,
-        total_issues=int(total_issues) if total_issues.strip() else None,
-        issue_min=int(issue_min) if issue_min.strip() else 1,
-    )
-    db.add(s)
-    db.commit()
-    return RedirectResponse(
-        url=f"/series?msg={quote(s.series_name + ' added successfully.')}",
-        status_code=303,
-    )
 
 
-@app.get("/series/{series_id}/edit", response_class=HTMLResponse)
-def series_edit_page(request: Request, series_id: int, db: Session = Depends(get_db)):
-    s = db.query(Series).filter(Series.id == series_id).first()
-    if not s:
-        raise HTTPException(status_code=404)
-    return templates.TemplateResponse("series_edit.html", {"request": request, "s": s})
 
 
-@app.post("/series/{series_id}/update", response_class=HTMLResponse)
-def series_update(
-    series_id: int,
-    db: Session = Depends(get_db),
-    publisher: str = Form(...),
-    series_name: str = Form(...),
-    year: str = Form(""),
-    comicvine_volume_id: str = Form(""),
-    metron_series_id: str = Form(""),
-    metron_annual_series_id: str = Form(""),
-    annual_comicvine_volume_id: str = Form(""),
-    getcomics_search_name: str = Form(""),
-    issue_min: str = Form("1"),
-):
-    s = db.query(Series).filter(Series.id == series_id).first()
-    if not s:
-        raise HTTPException(status_code=404)
-    s.publisher = publisher.strip()
-    s.series_name = series_name.strip()
-    s.year = int(year) if year.strip() else None
-    s.comicvine_volume_id = int(comicvine_volume_id) if comicvine_volume_id.strip() else None
-    s.metron_series_id = int(metron_series_id) if metron_series_id.strip() else None
-    s.metron_annual_series_id = int(metron_annual_series_id) if metron_annual_series_id.strip() else None
-    s.annual_comicvine_volume_id = int(annual_comicvine_volume_id) if annual_comicvine_volume_id.strip() else None
-    s.getcomics_search_name = getcomics_search_name.strip() or None
-    s.issue_min = int(issue_min) if issue_min.strip() else 1
-    db.commit()
-    return RedirectResponse(
-        url=f"/series/{series_id}",
-        status_code=303,
-    )
 
 
-@app.patch("/series/{series_id}/toggle", response_class=HTMLResponse)
-def series_toggle(request: Request, series_id: int, db: Session = Depends(get_db)):
-    s = db.query(Series).filter(Series.id == series_id).first()
-    if not s:
-        raise HTTPException(status_code=404)
-    s.enabled = not s.enabled
-    db.commit()
-    return templates.TemplateResponse(
-        "partials/series_row.html", {"request": request, "s": s}
-    )
 
 
-@app.post("/series/{series_id}/toggle")
-def series_toggle_post(series_id: int, db: Session = Depends(get_db)):
-    s = db.query(Series).filter(Series.id == series_id).first()
-    if not s:
-        raise HTTPException(status_code=404)
-    s.enabled = not s.enabled
-    db.commit()
-    return RedirectResponse(url=f"/series/{series_id}", status_code=303)
 
 
-@app.delete("/series/{series_id}")
-def series_delete(series_id: int, db: Session = Depends(get_db)):
-    s = db.query(Series).filter(Series.id == series_id).first()
-    if s:
-        db.delete(s)
-        db.commit()
-    return Response(status_code=200)
 
 
 # ── Bulk actions ───────────────────────────────────────────────────────────────
@@ -1842,91 +1295,8 @@ def bulk_delete(payload: dict, db: Session = Depends(get_db)):
     return {"deleted": n}
 
 
-@app.get("/series/{series_id}", response_class=HTMLResponse)
-def series_detail(request: Request, series_id: int, db: Session = Depends(get_db)):
-    s = db.query(Series).filter(Series.id == series_id).first()
-    if not s:
-        raise HTTPException(status_code=404)
-    local_count = _count_local_issues(s)
-    return templates.TemplateResponse(
-        "series_detail.html",
-        {"request": request, "s": s, "local_count": local_count},
-    )
 
 
-@app.get("/series/{series_id}/issues", response_class=HTMLResponse)
-def series_issues_partial(
-    request: Request,
-    series_id: int,
-    force: bool = False,
-    db: Session = Depends(get_db),
-):
-    s = db.query(Series).filter(Series.id == series_id).first()
-    if not s:
-        raise HTTPException(status_code=404)
-
-    if not s.metron_series_id:
-        return HTMLResponse(
-            '<div class="alert alert-info m-3">No Metron ID set — issue list unavailable.</div>'
-        )
-
-    local_nums = _local_issue_numbers(s)
-    local_annual_nums = _local_annual_issue_numbers(s) if s.metron_annual_series_id else set()
-
-    regular_issues: list[dict] = []
-    annual_issues: list[dict] = []
-
-    from metadata.metron_client import RateLimitedError
-
-    try:
-        raw = _get_or_fetch_metron_issues(s.metron_series_id, db, force=force, block=False)
-        regular_issues = _build_issue_list(raw, local_nums)
-    except RateLimitedError as exc:
-        secs = int(exc.seconds) + 2
-        return HTMLResponse(
-            f'<div class="alert alert-warning m-3 d-flex align-items-center gap-2 small">'
-            f'  <i class="bi bi-hourglass-split fs-5"></i>'
-            f'  <span>Limite de pedidos ao Metron atingido — a retomar em <strong>{secs}s</strong></span>'
-            f'</div>'
-            f'<div hx-get="/series/{series_id}/issues" hx-trigger="load delay:{secs}s"'
-            f'     hx-target="#issues-container" hx-swap="innerHTML"></div>'
-        )
-    except Exception as exc:
-        return HTMLResponse(
-            f'<div class="alert alert-danger m-3">Erro ao obter issues do Metron: {exc}</div>'
-        )
-
-    if s.metron_annual_series_id:
-        try:
-            raw_annual = _get_or_fetch_metron_issues(s.metron_annual_series_id, db, force=force, block=False)
-            annual_issues = _build_issue_list(raw_annual, local_annual_nums)
-        except (RateLimitedError, Exception):
-            pass
-
-    first = (
-        db.query(MetronIssueCache)
-        .filter(MetronIssueCache.series_id == s.metron_series_id)
-        .first()
-    )
-    monitored_rows = (
-        db.query(MonitoredIssue).filter(MonitoredIssue.series_id == s.id).all()
-    )
-    monitored_regular = {m.issue_number for m in monitored_rows if m.issue_type == "regular"}
-    monitored_annual = {m.issue_number for m in monitored_rows if m.issue_type == "annual"}
-    has_monitoring = bool(monitored_rows)
-    return templates.TemplateResponse(
-        "partials/series_issues.html",
-        {
-            "request": request,
-            "s": s,
-            "regular_issues": regular_issues,
-            "annual_issues": annual_issues,
-            "cached_at": first.cached_at if first else None,
-            "monitored_regular": monitored_regular,
-            "monitored_annual": monitored_annual,
-            "has_monitoring": has_monitoring,
-        },
-    )
 
 
 # ── Series detail JSON API (React) ──────────────────────────────────────────────
@@ -2018,13 +1388,45 @@ def api_issue_monitor(series_id: int, number: str, type: str = Query(default="re
 
 @app.post("/api/series/{series_id}/monitor-all")
 def api_monitor_all(series_id: int, db: Session = Depends(get_db)):
-    monitor_all(series_id, db)  # reuse existing insert logic (returns HX response, ignored)
+    s = db.query(Series).filter(Series.id == series_id).first()
+    if not s:
+        raise HTTPException(status_code=404)
+
+    def _insert_type(metron_series_id: int, issue_type: str) -> None:
+        rows = db.query(MetronIssueCache).filter(MetronIssueCache.series_id == metron_series_id).all()
+        existing = {
+            m.issue_number
+            for m in db.query(MonitoredIssue)
+                .filter(MonitoredIssue.series_id == series_id, MonitoredIssue.issue_type == issue_type)
+                .all()
+        }
+        for row in rows:
+            if not row.number:
+                continue
+            try:
+                norm = str(int(float(row.number)))
+            except (ValueError, TypeError):
+                norm = row.number
+            if norm not in existing:
+                db.add(MonitoredIssue(series_id=series_id, issue_number=norm, issue_type=issue_type))
+                existing.add(norm)
+
+    if s.metron_series_id:
+        _insert_type(s.metron_series_id, "regular")
+    if s.metron_annual_series_id:
+        _insert_type(s.metron_annual_series_id, "annual")
+    _recompute_pause_state(s, db)
+    db.commit()
     return {"ok": True}
 
 
 @app.delete("/api/series/{series_id}/monitor-all")
 def api_unmonitor_all(series_id: int, db: Session = Depends(get_db)):
-    unmonitor_all(series_id, db)
+    db.query(MonitoredIssue).filter(MonitoredIssue.series_id == series_id).delete()
+    s = db.query(Series).filter(Series.id == series_id).first()
+    if s:
+        _recompute_pause_state(s, db)
+    db.commit()
     return {"ok": True}
 
 
@@ -2254,26 +1656,10 @@ def api_rename_apply(series_id: int, payload: dict, db: Session = Depends(get_db
 from web import scanner as _scanner
 
 
-@app.get("/library", response_class=HTMLResponse)
-def library_page(request: Request):
-    return templates.TemplateResponse(
-        "library.html", {"request": request, "status": _scanner.get_status()}
-    )
 
 
-@app.get("/library/status", response_class=HTMLResponse)
-def library_status(request: Request):
-    return templates.TemplateResponse(
-        "partials/library_status.html", {"request": request, "status": _scanner.get_status()}
-    )
 
 
-@app.post("/library/scan")
-def library_scan(force: bool = Form(default=False), db: Session = Depends(get_db)):
-    from retag_comics import load_series_from_db
-    series_list = load_series_from_db()
-    _scanner.run_scan(series_list, force=force)
-    return Response(status_code=200, headers={"HX-Trigger": "refresh-scan-status"})
 
 
 def _scan_status_json() -> dict:
@@ -2299,17 +1685,6 @@ def api_library_scan(force: bool = Query(default=False)):
     return {"started": started, **_scan_status_json()}
 
 
-@app.post("/series/{series_id}/scan", response_class=HTMLResponse)
-def series_scan(series_id: int, force: bool = Form(default=False), db: Session = Depends(get_db)):
-    s = db.query(Series).filter(Series.id == series_id).first()
-    if not s:
-        raise HTTPException(status_code=404)
-    _scanner.run_scan([s.to_scraper_tuple()], force=force)
-    return HTMLResponse(
-        '<button class="btn btn-sm btn-outline-secondary" disabled>'
-        '<i class="bi bi-arrow-repeat me-1"></i>Scan started…'
-        '</button>'
-    )
 
 
 # ── Issue file deletion ────────────────────────────────────────────────────────
@@ -2329,23 +1704,6 @@ def _delete_issue_file(s: Series, issue_num: str, issue_type: str | None) -> tup
     return True, f"#{issue_num} deleted"
 
 
-@app.delete("/series/{series_id}/issues/{issue_num}", response_class=HTMLResponse)
-def issue_delete_file(
-    request: Request,
-    series_id: int,
-    issue_num: str,
-    type: str | None = Query(default=None),
-    db: Session = Depends(get_db),
-):
-    s = db.query(Series).filter(Series.id == series_id).first()
-    if not s:
-        raise HTTPException(status_code=404)
-    ok, msg = _delete_issue_file(s, issue_num, type)
-    return templates.TemplateResponse(
-        "partials/toast.html",
-        {"request": request, "kind": "success" if ok else "error", "message": msg},
-        headers={"HX-Trigger": "refresh-issues"} if ok else None,
-    )
 
 
 @app.post("/api/series/{series_id}/issues/bulk/delete")
@@ -2373,246 +1731,18 @@ def issue_bulk_delete(series_id: int, payload: dict, db: Session = Depends(get_d
 # ── Local metadata editor ──────────────────────────────────────────────────────
 
 
-@app.get("/series/{series_id}/issues/{issue_num}/metadata", response_class=HTMLResponse)
-def issue_metadata_form(request: Request, series_id: int, issue_num: str, db: Session = Depends(get_db)):
-    from metadata.comicinfo_io import read_comicinfo, empty_fields
-
-    s = db.query(Series).filter(Series.id == series_id).first()
-    if not s:
-        raise HTTPException(status_code=404)
-
-    cbz = _find_issue_file(s, issue_num)
-    if not cbz:
-        return HTMLResponse(
-            '<div class="alert alert-warning m-3">Local file not found for this issue.</div>'
-        )
-
-    try:
-        fields = read_comicinfo(cbz)
-    except Exception as exc:
-        log.error("Failed to read ComicInfo.xml from %s: %s", cbz, exc)
-        fields = empty_fields()
-
-    return templates.TemplateResponse(
-        "partials/issue_metadata_form.html",
-        {
-            "request": request,
-            "s": s,
-            "issue_num": issue_num,
-            "fields": fields,
-            "filename": os.path.basename(cbz),
-            "from_metron": False,
-        },
-    )
 
 
-@app.get("/series/{series_id}/issues/{issue_num}/metadata/from-metron", response_class=HTMLResponse)
-def issue_metadata_from_metron(request: Request, series_id: int, issue_num: str, db: Session = Depends(get_db)):
-    from metadata.comicinfo_io import empty_fields
-    from metadata.get_comic_metadata import get_comic_metadata
-
-    s = db.query(Series).filter(Series.id == series_id).first()
-    if not s:
-        raise HTTPException(status_code=404)
-
-    cbz = _find_issue_file(s, issue_num)
-    fields = empty_fields()
-
-    try:
-        entry = s.to_scraper_tuple()
-        meta = get_comic_metadata(entry, issue_num)
-        if meta:
-            fields["Series"] = str(meta.get("series_name") or s.series_name or "")
-            fields["Number"] = str(meta.get("issue_number") or issue_num)
-            fields["Title"] = str(meta.get("title") or "")
-            fields["Publisher"] = str(meta.get("publisher") or s.publisher or "")
-            fields["Summary"] = str(meta.get("description") or "")
-            fields["PageCount"] = str(meta.get("page_count") or "")
-            store_date = meta.get("store_date") or ""
-            if len(store_date) >= 7:
-                fields["Year"] = store_date[:4]
-                fields["Month"] = str(int(store_date[5:7]))
-            for role in ("Writer", "Penciller", "Inker", "Colorist", "Letterer", "CoverArtist"):
-                key = role.lower() if role != "CoverArtist" else "cover_artist"
-                v = meta.get(key) or meta.get(role) or ""
-                if isinstance(v, list):
-                    v = ", ".join(str(x) for x in v)
-                fields[role] = str(v)
-    except Exception as exc:
-        log.error("Failed to fetch from Metron: %s", exc)
-
-    return templates.TemplateResponse(
-        "partials/issue_metadata_form.html",
-        {
-            "request": request,
-            "s": s,
-            "issue_num": issue_num,
-            "fields": fields,
-            "filename": os.path.basename(cbz) if cbz else "",
-            "from_metron": True,
-        },
-    )
 
 
-@app.post("/series/{series_id}/issues/{issue_num}/metadata", response_class=HTMLResponse)
-async def issue_metadata_save(request: Request, series_id: int, issue_num: str, db: Session = Depends(get_db)):
-    from metadata.comicinfo_io import write_comicinfo, EDITOR_FIELDS
-
-    s = db.query(Series).filter(Series.id == series_id).first()
-    if not s:
-        raise HTTPException(status_code=404)
-
-    cbz = _find_issue_file(s, issue_num)
-    if not cbz:
-        return templates.TemplateResponse(
-            "partials/toast.html",
-            {"request": request, "kind": "error", "message": "Local file not found."},
-        )
-
-    form = await request.form()
-    fields = {k: (form.get(k) or "").strip() for k in EDITOR_FIELDS}
-
-    try:
-        ok = write_comicinfo(cbz, fields)
-    except Exception as exc:
-        log.error("Failed to write ComicInfo.xml to %s: %s", cbz, exc)
-        return templates.TemplateResponse(
-            "partials/toast.html",
-            {"request": request, "kind": "error", "message": f"Save failed: {exc}"},
-        )
-
-    return templates.TemplateResponse(
-        "partials/toast.html",
-        {
-            "request": request,
-            "kind": "success" if ok else "error",
-            "message": "Metadata saved." if ok else "Save returned failure.",
-        },
-        headers={"HX-Trigger": "refresh-issues"} if ok else None,
-    )
 
 
-@app.get("/series/{series_id}/series-xml", response_class=HTMLResponse)
-def series_xml_form(request: Request, series_id: int, db: Session = Depends(get_db)):
-    from metadata.series_xml import read_series_xml
-
-    s = db.query(Series).filter(Series.id == series_id).first()
-    if not s:
-        raise HTTPException(status_code=404)
-
-    fields = read_series_xml(_series_dir(s))
-    return templates.TemplateResponse(
-        "partials/series_xml_form.html",
-        {"request": request, "s": s, "fields": fields},
-    )
 
 
-@app.post("/series/{series_id}/series-xml", response_class=HTMLResponse)
-async def series_xml_save(request: Request, series_id: int, db: Session = Depends(get_db)):
-    from metadata.series_xml import FIELDS, write_series_xml
-
-    s = db.query(Series).filter(Series.id == series_id).first()
-    if not s:
-        raise HTTPException(status_code=404)
-
-    form = await request.form()
-    fields = {k: (form.get(k) or "").strip() for k in FIELDS}
-
-    try:
-        write_series_xml(_series_dir(s), fields)
-    except Exception as exc:
-        log.error("Failed to write series.xml: %s", exc)
-        return templates.TemplateResponse(
-            "partials/toast.html",
-            {"request": request, "kind": "error", "message": f"Save failed: {exc}"},
-        )
-
-    return templates.TemplateResponse(
-        "partials/toast.html",
-        {"request": request, "kind": "success", "message": "Series notes saved."},
-    )
 
 
-@app.get("/series/{series_id}/rename-preview", response_class=HTMLResponse)
-def rename_preview(request: Request, series_id: int, msg: str = "", db: Session = Depends(get_db)):
-    from retag_comics import _issue_number as _parse_num, expected_filename
-
-    s = db.query(Series).filter(Series.id == series_id).first()
-    if not s:
-        raise HTTPException(status_code=404)
-
-    entry = s.to_scraper_tuple()
-
-    def _scan(directory: str, scan_entry: tuple) -> list[dict]:
-        if not os.path.isdir(directory):
-            return []
-        results = []
-        for filename in sorted(os.listdir(directory)):
-            if not filename.lower().endswith((".cbz", ".cbr")):
-                continue
-            ext = os.path.splitext(filename)[1].lower()
-            num = _parse_num(filename)
-            exp = expected_filename(scan_entry, num, ext) if num else None
-            results.append({
-                "folder": directory,
-                "current": filename,
-                "expected": exp,
-                "changed": exp is not None and filename != exp,
-            })
-        return results
-
-    series_dir = _series_dir(s)
-    items = _scan(series_dir, entry)
-
-    annual_entry = (entry[0], f"{entry[1]} Annual", entry[2])
-    items += _scan(os.path.join(series_dir, "Annuals"), annual_entry)
-
-    changed = [i for i in items if i["changed"]]
-    correct_count = sum(1 for i in items if i["expected"] and not i["changed"])
-    unparseable = [i for i in items if i["expected"] is None]
-
-    return templates.TemplateResponse("partials/rename_preview.html", {
-        "request": request,
-        "s": s,
-        "changed": changed,
-        "correct_count": correct_count,
-        "unparseable": unparseable,
-        "msg": msg,
-    })
 
 
-@app.post("/series/{series_id}/rename-apply", response_class=HTMLResponse)
-async def rename_apply(request: Request, series_id: int, db: Session = Depends(get_db)):
-    form = await request.form()
-    renamed = errors = 0
-    for value in form.getlist("rename"):
-        try:
-            folder, current, expected = value.split("|", 2)
-            src = os.path.join(folder, current)
-            dst = os.path.join(folder, expected)
-            base = os.path.realpath(COMICS_BASE_DIR)
-            if (os.path.commonpath([base, os.path.realpath(src)]) != base
-                    or os.path.commonpath([base, os.path.realpath(dst)]) != base):
-                log.warning("Rename: path escapes comics dir: %s -> %s", src, dst)
-                errors += 1
-            elif not os.path.exists(src):
-                log.warning("Rename: source not found: %s", src)
-                errors += 1
-            elif os.path.exists(dst):
-                log.warning("Rename: target already exists: %s", dst)
-                errors += 1
-            else:
-                os.rename(src, dst)
-                log.info("Renamed: %s -> %s", current, expected)
-                renamed += 1
-        except Exception as exc:
-            log.error("Rename error: %s", exc)
-            errors += 1
-
-    msg = f"{renamed} ficheiro(s) renomeado(s)"
-    if errors:
-        msg += f", {errors} erro(s)"
-    return rename_preview(request, series_id, msg=msg, db=db)
 
 
 # ── Log viewer ─────────────────────────────────────────────────────────────────
@@ -2820,62 +1950,6 @@ def _load_calendar_events(
     return events
 
 
-@app.get("/calendar", response_class=HTMLResponse)
-def calendar_page(
-    request: Request,
-    view: str = "month",
-    date_str: str = Query("", alias="date"),
-    db: Session = Depends(get_db),
-):
-    if view not in ("month", "week"):
-        view = "month"
-    try:
-        ref = date.fromisoformat(date_str) if date_str else date.today()
-    except ValueError:
-        ref = date.today()
-
-    start, end = _calendar_range(view, ref)
-    events = _load_calendar_events(db, start, end)
-
-    # Build the list of weeks (each = 7 dicts with date + events).
-    weeks: list[list[dict]] = []
-    cursor = start
-    today = date.today()
-    while cursor <= end:
-        week: list[dict] = []
-        for _ in range(7):
-            week.append({
-                "date": cursor,
-                "iso": cursor.isoformat(),
-                "is_today": cursor == today,
-                "in_view_month": (view == "week") or cursor.month == ref.month,
-                "events": events.get(cursor.isoformat(), []),
-            })
-            cursor += timedelta(days=1)
-        weeks.append(week)
-
-    prev_ref = _calendar_shift(view, ref, -1).isoformat()
-    next_ref = _calendar_shift(view, ref, +1).isoformat()
-    today_iso = date.today().isoformat()
-
-    if view == "week":
-        header_label = f"{start.strftime('%b %d')} — {end.strftime('%b %d, %Y')}"
-    else:
-        header_label = ref.strftime("%B %Y")
-
-    return templates.TemplateResponse(
-        "calendar.html",
-        {
-            "request": request,
-            "view": view,
-            "weeks": weeks,
-            "header_label": header_label,
-            "prev_ref": prev_ref,
-            "next_ref": next_ref,
-            "today_iso": today_iso,
-            "current_ref": ref.isoformat(),
-        },
-    )
 
 
 @app.get("/api/calendar")
@@ -2998,45 +2072,8 @@ def _match_feed_entries(entries, db: Session) -> list[dict]:
     return results
 
 
-@app.get("/releases", response_class=HTMLResponse)
-def releases_page(request: Request, db: Session = Depends(get_db)):
-    from comic_search.rss_feed import fetch_feed
-    error = None
-    entries = []
-    matches: list[dict] = []
-    try:
-        entries = fetch_feed()
-        matches = _match_feed_entries(entries, db)
-    except Exception as exc:
-        log.warning("Failed to fetch RSS feed: %s", exc)
-        error = str(exc)
-
-    return templates.TemplateResponse(
-        "releases.html",
-        {
-            "request": request,
-            "matches": matches,
-            "feed_size": len(entries),
-            "error": error,
-        },
-    )
 
 
-@app.get("/releases/list", response_class=HTMLResponse)
-def releases_list_partial(request: Request, db: Session = Depends(get_db)):
-    """HTMX partial — re-renders just the matches list. Refresh button target."""
-    from comic_search.rss_feed import fetch_feed
-    try:
-        entries = fetch_feed()
-        matches = _match_feed_entries(entries, db)
-        return templates.TemplateResponse(
-            "partials/releases_list.html",
-            {"request": request, "matches": matches, "feed_size": len(entries)},
-        )
-    except Exception as exc:
-        return HTMLResponse(
-            f'<div class="alert alert-danger small">Erro ao obter feed: {exc}</div>'
-        )
 
 
 @app.get("/api/releases")
@@ -3071,114 +2108,18 @@ def api_releases(db: Session = Depends(get_db)):
     }
 
 
-@app.get("/logs", response_class=HTMLResponse)
-def logs_page(request: Request, db: Session = Depends(get_db)):
-    files = _log_files()
-    retention = int(_get_log_setting(db, "log_retention_days", "7"))
-    current = _current_log_path()
-    current_name = os.path.basename(current) if current else (files[0]["name"] if files else "")
-    return templates.TemplateResponse(
-        "logs.html",
-        {
-            "request": request,
-            "files": files,
-            "retention_days": retention,
-            "current_name": current_name,
-            "lines_default": _LOG_LINES_DEFAULT,
-        },
-    )
 
 
-@app.get("/logs/stream", response_class=HTMLResponse)
-def logs_stream(
-    request: Request,
-    filename: str = "",
-    lines: int = _LOG_LINES_DEFAULT,
-    level: str = "",
-):
-    if filename:
-        safe = os.path.basename(filename)
-        path = os.path.join(LOG_DIR, safe)
-    else:
-        path = _current_log_path()
-
-    if not path or not os.path.isfile(path):
-        return templates.TemplateResponse(
-            "partials/log_stream.html",
-            {"request": request, "lines": [], "filename": filename},
-        )
-
-    raw = _read_tail(path, lines)
-    if level:
-        raw = [l for l in raw if f" - {level.upper()} - " in l]
-
-    return templates.TemplateResponse(
-        "partials/log_stream.html",
-        {"request": request, "lines": raw, "filename": os.path.basename(path)},
-    )
 
 
-@app.get("/logs/files", response_class=HTMLResponse)
-def logs_files_partial(request: Request):
-    return templates.TemplateResponse(
-        "partials/log_files.html",
-        {"request": request, "files": _log_files()},
-    )
 
 
-@app.get("/logs/{filename}/download")
-def log_download(filename: str):
-    safe = os.path.basename(filename)
-    path = os.path.join(LOG_DIR, safe)
-    if not os.path.isfile(path):
-        raise HTTPException(status_code=404)
-    return FileResponse(path, media_type="text/plain", filename=safe)
 
 
-@app.delete("/logs/{filename}", response_class=HTMLResponse)
-def log_delete(filename: str, request: Request):
-    safe = os.path.basename(filename)
-    path = os.path.join(LOG_DIR, safe)
-    active = _current_log_path()
-    if os.path.normpath(path) == os.path.normpath(active or ""):
-        return templates.TemplateResponse(
-            "partials/toast.html",
-            {"request": request, "kind": "error", "message": "Cannot delete the active log file."},
-        )
-    try:
-        os.remove(path)
-    except OSError as exc:
-        return templates.TemplateResponse(
-            "partials/toast.html",
-            {"request": request, "kind": "error", "message": str(exc)},
-        )
-    return templates.TemplateResponse(
-        "partials/log_files.html",
-        {"request": request, "files": _log_files()},
-        headers={"HX-Trigger": "log-file-deleted"},
-    )
 
 
-@app.post("/logs/cleanup", response_class=HTMLResponse)
-def log_cleanup(request: Request, db: Session = Depends(get_db)):
-    retention = int(_get_log_setting(db, "log_retention_days", "7"))
-    deleted = _cleanup_old_logs(retention)
-    return templates.TemplateResponse(
-        "partials/log_files.html",
-        {"request": request, "files": _log_files()},
-        headers={"HX-Trigger": json.dumps({"show-toast": {"kind": "success", "message": f"{deleted} log(s) deleted."}})},
-    )
 
 
-@app.post("/logs/settings", response_class=HTMLResponse)
-async def log_settings_save(request: Request, db: Session = Depends(get_db)):
-    form = await request.form()
-    days = max(1, int(form.get("log_retention_days") or 7))
-    _set_log_setting(db, "log_retention_days", str(days))
-    return templates.TemplateResponse(
-        "partials/toast.html",
-        {"request": request, "kind": "success", "message": f"Retention set to {days} days."},
-    )
 
 
 # ── Log viewer — JSON endpoints (SPA) ────────────────────────────────────────
@@ -3273,20 +2214,23 @@ def api_log_settings(payload: LogSettings, db: Session = Depends(get_db)):
     return {"retention_days": days}
 
 
-# ── React SPA (production) ───────────────────────────────────────────────────
-# Served under /app so it coexists with /api/* and the legacy Jinja pages at /.
-# Hashed assets via StaticFiles; everything else under /app/* falls back to
-# index.html for client-side routing (Vite base + router basename = /app).
-# Registered last; only matches the /app prefix so it shadows nothing above.
+# ── React SPA (the UI) ───────────────────────────────────────────────────────
+# Served at the root. Hashed assets via StaticFiles at /assets; every other
+# non-API path falls back to index.html for client-side routing. Registered
+# LAST so the /api/* + /health routes above always match first; the catch-all
+# only ever sees paths nothing else claimed.
 SPA_DIST = os.path.join(os.path.dirname(__file__), os.pardir, "frontend", "dist")
 
 if os.path.isdir(os.path.join(SPA_DIST, "assets")):
-    app.mount("/app/assets", StaticFiles(directory=os.path.join(SPA_DIST, "assets")), name="spa-assets")
+    app.mount("/assets", StaticFiles(directory=os.path.join(SPA_DIST, "assets")), name="spa-assets")
     _spa_root = os.path.normpath(SPA_DIST) + os.sep  # trailing sep → real dir boundary, not a prefix match
 
-    @app.get("/app", include_in_schema=False)
-    @app.get("/app/{full_path:path}", include_in_schema=False)
+    @app.get("/{full_path:path}", include_in_schema=False)
     def spa(full_path: str = ""):
+        # never hijack the JSON API / health namespaces — an unmatched /api/*
+        # must 404 as JSON, not silently return the SPA shell.
+        if full_path == "health" or full_path.startswith(("api/", "assets/")):
+            raise HTTPException(status_code=404)
         candidate = os.path.normpath(os.path.join(SPA_DIST, full_path))
         # serve root-level static files (vite.svg, favicon); else the SPA shell
         if full_path and candidate.startswith(_spa_root) and os.path.isfile(candidate):
