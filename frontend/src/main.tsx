@@ -11,6 +11,7 @@ import { SeriesDetail } from "@/pages/SeriesDetail"
 import { Downloads } from "@/pages/Downloads"
 import { Library } from "@/pages/Library"
 import { Scheduler } from "@/pages/Scheduler"
+import { Releases } from "@/pages/Releases"
 import { ComingSoon } from "@/pages/ComingSoon"
 import { Toaster } from "@/components/ui/sonner"
 
@@ -30,7 +31,7 @@ createRoot(document.getElementById("root")!).render(
             <Route path="/series/:id/edit" element={<SeriesEdit />} />
             <Route path="/series/:id" element={<SeriesDetail />} />
             <Route path="/calendar" element={<ComingSoon title="Calendar" />} />
-            <Route path="/releases" element={<ComingSoon title="Releases" />} />
+            <Route path="/releases" element={<Releases />} />
             <Route path="/downloads" element={<Downloads />} />
             <Route path="/scheduler" element={<Scheduler />} />
             <Route path="/library" element={<Library />} />

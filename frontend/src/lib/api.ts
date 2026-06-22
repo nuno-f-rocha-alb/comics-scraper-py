@@ -261,6 +261,21 @@ export const runSchedulerNow = () =>
 export const saveSchedule = (mode: "interval" | "cron", value: string) =>
   postJSON<SchedulerStatus>("/api/scheduler/config", { mode, value })
 
+// ── Releases ──────────────────────────────────────────────────────────────────
+export interface ReleaseMatch {
+  series_id: number
+  series_name: string
+  cover_image_url: string | null
+  issue_number: string
+  title: string
+  url: string
+  pub_date: string | null
+  downloaded: boolean
+  queued: boolean
+}
+export const getReleases = () =>
+  http<{ matches: ReleaseMatch[]; feed_size: number; error: string | null }>("/api/releases")
+
 // Form-post endpoints that redirect on success (cache refresh / cover sync).
 export const postAction = (url: string) =>
   fetch(url, { method: "POST" }).then((r) => {

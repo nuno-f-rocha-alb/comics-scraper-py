@@ -2989,6 +2989,38 @@ def releases_list_partial(request: Request, db: Session = Depends(get_db)):
         )
 
 
+@app.get("/api/releases")
+def api_releases(db: Session = Depends(get_db)):
+    """JSON getcomics RSS matches against monitored series (React Releases page)."""
+    from comic_search.rss_feed import fetch_feed
+
+    try:
+        entries = fetch_feed()
+        matches = _match_feed_entries(entries, db)
+    except Exception as exc:
+        log.warning("Failed to fetch RSS feed: %s", exc)
+        return {"matches": [], "feed_size": 0, "error": str(exc)}
+
+    return {
+        "feed_size": len(entries),
+        "error": None,
+        "matches": [
+            {
+                "series_id": m["series"].id,
+                "series_name": m["series"].series_name,
+                "cover_image_url": m["series"].cover_image_url,
+                "issue_number": m["issue_number"],
+                "title": m["entry"].title,
+                "url": m["entry"].url,
+                "pub_date": m["entry"].pub_date.isoformat() if m["entry"].pub_date else None,
+                "downloaded": m["downloaded"],
+                "queued": m["queued"],
+            }
+            for m in matches
+        ],
+    }
+
+
 @app.get("/logs", response_class=HTMLResponse)
 def logs_page(request: Request, db: Session = Depends(get_db)):
     files = _log_files()

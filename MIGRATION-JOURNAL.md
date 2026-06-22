@@ -207,3 +207,16 @@ poll 3s) + Schedule config (mode interval|cron, hours input or cron expression w
 Save). Form seeded once from server config.
 
 **Gate:** `npm run build` ✅. Live screenshot ✅ matches scheduler.html. CodeRabbit: 2 minor — saveSchedule mode literal type + label htmlFor a11y (mode/interval/cron). Fixed.
+
+## §10 — Page 8 (Releases)
+
+**Backend:** `GET /api/releases` — getcomics RSS matched vs monitored series (reuses `_match_feed_entries`),
+returns flat match dicts (series_id/name/cover, issue_number, post title/url/pub_date, downloaded, queued) +
+feed_size + error. Jinja routes untouched.
+
+**Frontend:** `Releases` page (`/releases`) — match rows (cover, series link + issue, post title/date,
+Download / Downloaded / Queued state), feed summary, Refresh. Download reuses
+`POST /api/series/{id}/issues/{n}/download`; optimistic Queued state on click.
+
+**Gate:** `npm run build` ✅. Live screenshot ✅ matches releases.html (3 matches/10 posts, all 3 states).
+CodeRabbit: 2 minor, both skipped — PT error string is exact parity with releases.html; fmtDate already handles empty (falsy).
