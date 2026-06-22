@@ -81,3 +81,18 @@ web/templates/
 - **Phase 3** ✅ — UI: series list, add/edit, Metron search-as-you-type
 - **Phase 4** ✅ — Verify step: live getcomics.org check before saving
 - **Phase 5** ✅ — *arr-style card grid + series detail page with issues list
+
+## Frontend SPA (`frontend/`) — tooling gotchas
+React SPA (Vite + React 19 + TS + Tailwind v4 + shadcn/ui) migrated from the Jinja UI; served by FastAPI
+under `/app` in prod (legacy Jinja pages kept at `/` until parity sign-off). See `MIGRATION-JOURNAL.md`.
+- **Typecheck = `cd frontend && npm run build`** (runs `tsc -b` then Vite). Bare `tsc` misses the Vite step
+  and the path-alias resolution — don't use it as the gate.
+- **Backend deps are Docker-only on the host** (no sqlalchemy/comicapi locally), so `web/app.py` won't
+  import and uvicorn won't run on the host. Verify the SPA against `frontend/mock_api.py` (stdlib,
+  gitignored) via the `.claude/launch.json` "comics-frontend" preview (Vite 5173 → mock 8000). The `/app`
+  StaticFiles mount itself is only testable in Docker.
+- **CodeRabbit free CLI caps at 150 files** → review per unit with `--type uncommitted`, not the whole branch.
+- **lucide-react missing icons** hit during the migration: no `SlashCircle` (use `Ban`), no `ArrowClockwise`
+  (use `RotateCw`).
+- **`preview_screenshot` times out on fast-poll pages** (a 2–3s `refetchInterval` never lets the network go
+  idle) — verify those via DOM `eval` checks instead.

@@ -57,8 +57,8 @@ def search_comics(entry):
             if comic_url in cached_comic_urls:
                 continue  # already in results, skip
 
-            issue_match = re.search(r"#(\d+)", comic_title)
-            issue_number = int(issue_match.group(1)) if issue_match else float('inf')
+            issue_match = re.search(r"#(\d+(?:\.\d+)?)", comic_title)
+            issue_number = float(issue_match.group(1)) if issue_match else float('inf')
 
             year = extract_year_from_comic_title(comic_title)
             if year is None or year < entry[2]:
@@ -77,8 +77,8 @@ def search_comics(entry):
 
     # Sort by year then issue number
     def parse_sort_key(title):
-        issue_match = re.search(r"#(\d+)", title)
-        issue_number = int(issue_match.group(1)) if issue_match else float('inf')
+        issue_match = re.search(r"#(\d+(?:\.\d+)?)", title)
+        issue_number = float(issue_match.group(1)) if issue_match else float('inf')
         year = extract_year_from_comic_title(title) or 0
         return (year, issue_number)
 

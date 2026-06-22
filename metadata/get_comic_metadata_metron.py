@@ -21,15 +21,28 @@ def _series_detail(series_id: int) -> dict:
 def _find_series_id(cv_id, series_name: str, year_began, metron_series_id=None) -> int | None:
     # Direct Metron ID — no lookup needed (set by web UI when adding a series)
     if metron_series_id:
-        return int(metron_series_id)
+        try:
+            return int(metron_series_id)
+        except (ValueError, TypeError):
+            logging.warning("Invalid metron_series_id: %r", metron_series_id)
     # Try by CV ID next — avoids ambiguous name searches
     if cv_id:
-        r = metron_client.get(f"{METRON_BASE_URL}/series/", cv_id=int(cv_id))
-        results = r.json().get("results", [])
-        if results:
-            return results[0]["id"]
+        try:
+            cv_id_int = int(cv_id)
+        except (ValueError, TypeError):
+            logging.warning("Invalid cv_id: %r", cv_id)
+        else:
+            r = metron_client.get(f"{METRON_BASE_URL}/series/", cv_id=cv_id_int)
+            results = r.json().get("results", [])
+            if results:
+                return results[0]["id"]
     # Fall back to name + year search
-    r = metron_client.get(f"{METRON_BASE_URL}/series/", name=series_name, year_began=int(year_began))
+    try:
+        year_began_int = int(year_began)
+    except (ValueError, TypeError):
+        logging.warning("Invalid year_began: %r", year_began)
+        return None
+    r = metron_client.get(f"{METRON_BASE_URL}/series/", name=series_name, year_began=year_began_int)
     results = r.json().get("results", [])
     if results:
         return results[0]["id"]

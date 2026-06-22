@@ -12,15 +12,20 @@ def tag_cbz_file(cbz_path, metadata):
     meta.issue = metadata.get("issue_number", "")
     meta.title = metadata.get("title", "")
     meta.publisher = metadata.get("publisher", "")
-    meta.synopsis = metadata.get("description", "")
+    description = metadata.get("description", "")
+    meta.synopsis = description
+    meta.comments = description  # some comicapi versions back <Summary> with .comments
     meta.issue_count = metadata.get("issue_count", 0)
 
     store_date = metadata.get("store_date", "")
     if store_date:
-        date_obj = datetime.strptime(store_date, "%Y-%m-%d")
-        meta.day = date_obj.day
-        meta.month = date_obj.month
-        meta.year = date_obj.year
+        try:
+            date_obj = datetime.strptime(store_date, "%Y-%m-%d")
+            meta.day = date_obj.day
+            meta.month = date_obj.month
+            meta.year = date_obj.year
+        except (ValueError, TypeError):
+            logging.warning(f"Invalid store_date '{store_date}' for {cbz_path}, skipping date.")
 
     logging.info(
         f"Writing metadata to {cbz_path}: Series: '{meta.series}', Issue: '{meta.issue}', "
