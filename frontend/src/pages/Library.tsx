@@ -5,6 +5,9 @@ import { AlertTriangle, CheckCircle2, Loader2, RefreshCw } from "lucide-react"
 import { getLibraryStatus, startLibraryScan } from "@/lib/api"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
+
+const Sep = () => <div className="hidden h-5 w-px bg-border sm:block" />
 
 const fmtDate = (d: string | null) =>
   d ? new Date(d).toLocaleString(undefined, {
@@ -57,6 +60,7 @@ export function Library() {
               <span className="inline-flex items-center gap-1.5 rounded bg-status-ended/15 px-2.5 py-1 text-sm text-status-ended">
                 <CheckCircle2 className="size-3.5" /> Idle
               </span>
+              <Sep />
               <div className="text-sm text-muted-foreground">
                 <span className="font-medium text-foreground">Last scan:</span>{" "}
                 {s?.last_scan_at ? (
@@ -86,8 +90,7 @@ export function Library() {
           </p>
           <div className="flex flex-wrap items-center gap-3">
             <label className="flex items-center gap-2 text-sm font-medium">
-              <input type="checkbox" checked={force} onChange={(e) => setForce(e.target.checked)}
-                className="size-4 accent-status-continuing" />
+              <Checkbox checked={force} onCheckedChange={(v) => setForce(v === true)} />
               Force retag (overwrite existing)
             </label>
             <Button onClick={scan} disabled={s?.running}>

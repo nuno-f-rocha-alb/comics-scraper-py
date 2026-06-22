@@ -27,6 +27,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { Checkbox } from "@/components/ui/checkbox"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -462,23 +463,22 @@ function SeriesGridCard({
           ) : null}
         </div>
       </Link>
-      {/* Bulk select checkbox (hover/selected reveal) */}
-      <label
+      {/* Bulk select checkbox (hover/selected reveal; has-[:focus-visible]
+          reveals on keyboard focus only — a mouse click won't make it linger) */}
+      <span
         className={cn(
-          "absolute left-1.5 top-1.5 z-10 cursor-pointer rounded bg-black/55 px-1.5 py-0.5 opacity-0 transition-opacity duration-150 group-hover:opacity-100 focus-within:opacity-100",
+          "absolute left-1.5 top-1.5 z-10 flex rounded bg-black/55 p-1 opacity-0 transition-opacity duration-150 group-hover:opacity-100 has-[:focus-visible]:opacity-100",
           selected && "opacity-100",
         )}
         title="Select for bulk action"
         onClick={(e) => e.stopPropagation()}
       >
-        <input
-          type="checkbox"
+        <Checkbox
           checked={selected}
-          onChange={onToggle}
-          className="size-4 cursor-pointer align-middle accent-status-continuing"
+          onCheckedChange={onToggle}
           aria-label={`Select ${s.series_name}`}
         />
-      </label>
+      </span>
     </div>
   )
 }

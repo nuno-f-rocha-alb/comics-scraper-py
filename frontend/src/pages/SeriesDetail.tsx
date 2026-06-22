@@ -40,6 +40,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { Checkbox } from "@/components/ui/checkbox"
 import { cn } from "@/lib/utils"
 import { MetadataSheet } from "@/components/MetadataSheet"
 import { SeriesNotes } from "@/components/SeriesNotes"
@@ -334,8 +335,8 @@ function IssuesTable({
                 selected.has(key) && "bg-status-continuing/10")}>
                 <td className="py-1.5 pl-4">
                   {i.status === "downloaded" && (
-                    <input type="checkbox" checked={selected.has(key)} onChange={() => toggleSel(key)}
-                      className="size-4 accent-status-continuing" aria-label={`Select #${i.number}`} />
+                    <Checkbox checked={selected.has(key)} onCheckedChange={() => toggleSel(key)}
+                      aria-label={`Select #${i.number}`} />
                   )}
                 </td>
                 <td className="py-1.5">

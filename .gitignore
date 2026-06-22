@@ -188,6 +188,7 @@ comics/
 logs/
 .idea/
 graphify-out/
+.graphify_*
 coderabbit-gate.txt
 .claude/skills/
 frontend/mock_api.py
