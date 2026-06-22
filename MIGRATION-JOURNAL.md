@@ -234,3 +234,62 @@ to series detail.
 
 **Gate:** `npm run build` ✅. Live screenshot ✅ matches calendar.html (June 2026 grid, 4 events across all
 statuses, today ring, dimmed trailing days). CodeRabbit: 0 findings (clean). Note: a week-view bug seen in preview was mock-only — real backend/page correct.
+
+## §12 — Page 7 (Logs — last page)
+
+**Backend (JSON, Jinja routes untouched):** new `_classify_log_line(line)` mirrors `partials/log_stream.html`
+class logic (error/warning/meta/dl/info) — single source of truth for both the template and the SPA. Endpoints:
+`GET /api/logs` ({files[{name,size}], current_name, retention_days, lines_default}), `GET /api/logs/files`,
+`GET /api/logs/stream?filename=&lines=&level=` ({filename, lines:[{text,cls}]}), `GET /api/logs/{f}/download`
+(FileResponse — under /api because Vite proxies only /api+/health), `DELETE /api/logs/{f}` (409 on the active
+log, 404 missing), `POST /api/logs/cleanup` ({deleted}), `POST /api/logs/settings` (validated `LogSettings`).
+All reuse the existing helpers (`_log_files`, `_read_tail`, `_current_log_path`, `_get/_set_log_setting`,
+`_cleanup_old_logs`).
+
+**Frontend:** `Logs` page (`/logs`) — two-pane parity with logs.html. Left: file select + lines/level filters,
+All Files list (download link + delete), Retention (keep N days save + Clean old logs). Right: terminal with
+LIVE dot (amber when paused), filename, line count, toolbar (Copy/Download/Auto-scroll/Pause), colour-coded
+lines via `ll-*` classes (terminal `.log-terminal` CSS ported into index.css, stays dark in light mode like
+base.html). Stream polls 2s via `refetchInterval` (disabled while paused); auto-scroll-to-bottom effect.
+Selection + retention seeded once from server info.
+
+**Gate:** `npm run build` ✅. Live-verified light+dark: 3 files, 7 colour-classified lines (all 5 classes),
+selector sync, level filter (ERROR→1 line), keyboard-accessible file rows, no console errors. CodeRabbit: 4
+findings — fixed 2 major (unbounded `lines` → cap 10000; non-keyboard `<li>` → `<button>` select area) + 1 minor
+(null-guard `sel.anchorNode` in copy). Skipped 2: `LogLineClass` "muted" (the API never returns it — `cls` types
+the response, `ll-muted` is only the static empty-state) + the onCopy setTimeout→useEffect refactor (React 18
+doesn't warn on unmounted setState; over-engineering a 1.2s cosmetic flag). **All 10 pages migrated.**
+
+## §13 — Production serve (SPA under FastAPI)
+
+**Goal:** ship the built SPA from FastAPI, coexisting with `/api/*` and the legacy Jinja pages (kept until
+parity sign-off). Chose to mount the SPA under **`/app`** rather than `/` — the Jinja routes still own `/`,
+`/series`, `/logs`, …, so a root mount would collide. `/app/*` is a clean namespace that shadows nothing.
+
+**Backend (`web/app.py`, end of file):** `SPA_DIST = ../frontend/dist`. When built (`dist/assets` exists):
+`app.mount("/app/assets", StaticFiles(...))` for hashed assets + a single catch-all
+`@app.get("/app")` / `@app.get("/app/{full_path:path}")` → serves a root-level static file if it exists
+(`favicon.svg`), otherwise `index.html` for client-side routing. `os.path.normpath` + `startswith(SPA_DIST)`
+guard blocks path traversal. Registered last; only matches `/app`, so the `/api` + Jinja routes are untouched.
+Block is wrapped in `if os.path.isdir(...)` so the app still boots on a host without a build.
+
+**Frontend:** Vite `base` is **conditional** — `command === 'build' ? '/app/' : '/'` — so dev stays at `/`
+(proxy + `.claude/launch.json` unchanged) and only the prod bundle is rooted at `/app/`. Router reads it via
+`basename={import.meta.env.BASE_URL.replace(/\/$/,"") || "/"}` (single source: `/` in dev, `/app` in prod).
+`fetch` calls stay absolute `/api/*` (origin-root, unaffected by basename) — no change needed.
+
+**Docker:** Dockerfile is now 2-stage — `node:20-slim` builds the SPA (`npm ci` + `npm run build`), the
+Python stage copies `/build/dist` → `./frontend/dist`. Added `.dockerignore` (excludes `frontend/node_modules`,
+`frontend/dist`, `.git`, `logs`, `comics`, `cache`, `mock_api.py`, …) so `COPY . .` doesn't drag host
+`node_modules` into the image. `docker-compose.yml` gained `build: .` so `docker compose build` produces the
+SPA-inclusive image (the published `image:` tag is kept).
+
+**Gate:** `npm run build` ✅ (prod, base `/app/` — `dist/index.html` refs `/app/assets/*`, `/app/favicon.svg`).
+Serving contract verified against the real `dist` via a stdlib replica of the catch-all: `/app/` serves the
+shell, `/app/logs` falls back to `index.html` (client routing), `/app/assets/index-*.js` serves, and a
+`../../requirements.txt` traversal is blocked (returns the shell, no leak). Dev unchanged: `/series` still
+mounts at root with 9 cards. (Real uvicorn unrunnable on host — sqlalchemy/comicapi are Docker-only — so the
+backend mount itself is verified in Docker, not on host.)
+
+**Deferred:** legacy Jinja templates + HTML routes stay until parity is signed off (per the brief). graphify
+refresh = §14.

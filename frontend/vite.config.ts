@@ -4,7 +4,11 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
 // https://vite.dev/config/
-export default defineConfig({
+export default defineConfig(({ command }) => ({
+  // Prod build is served under /app by FastAPI (coexists with the legacy Jinja
+  // pages at /); dev stays at / so the proxy + launch.json are unchanged.
+  // Router reads this via import.meta.env.BASE_URL (see main.tsx).
+  base: command === 'build' ? '/app/' : '/',
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: { '@': path.resolve(__dirname, './src') },
@@ -18,4 +22,4 @@ export default defineConfig({
       '/health': { target: 'http://127.0.0.1:8000', changeOrigin: true },
     },
   },
-})
+}))

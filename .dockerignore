@@ -1,0 +1,13 @@
+# Keep the build context (and the COPY . .) small — the SPA is built in its own
+# stage and copied in, so host node_modules/dist must never enter the image.
+frontend/node_modules
+frontend/dist
+node_modules
+.git
+logs
+comics
+cache
+**/__pycache__
+*.pyc
+frontend/mock_api.py
+coderabbit-gate.txt

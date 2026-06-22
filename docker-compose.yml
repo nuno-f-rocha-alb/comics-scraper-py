@@ -2,6 +2,7 @@
 services:
   python-script:
     image: nunobifes/comics-scraper-py:latest  # The name of your image
+    build: .                                    # `docker compose build` bundles the React SPA (Dockerfile stage 1)
     container_name: comics-scraper-py
     environment:
       - PUID=1000

@@ -3271,3 +3271,24 @@ def api_log_settings(payload: LogSettings, db: Session = Depends(get_db)):
     days = max(1, payload.log_retention_days)
     _set_log_setting(db, "log_retention_days", str(days))
     return {"retention_days": days}
+
+
+# ── React SPA (production) ───────────────────────────────────────────────────
+# Served under /app so it coexists with /api/* and the legacy Jinja pages at /.
+# Hashed assets via StaticFiles; everything else under /app/* falls back to
+# index.html for client-side routing (Vite base + router basename = /app).
+# Registered last; only matches the /app prefix so it shadows nothing above.
+SPA_DIST = os.path.join(os.path.dirname(__file__), os.pardir, "frontend", "dist")
+
+if os.path.isdir(os.path.join(SPA_DIST, "assets")):
+    app.mount("/app/assets", StaticFiles(directory=os.path.join(SPA_DIST, "assets")), name="spa-assets")
+    _spa_root = os.path.normpath(SPA_DIST) + os.sep  # trailing sep → real dir boundary, not a prefix match
+
+    @app.get("/app", include_in_schema=False)
+    @app.get("/app/{full_path:path}", include_in_schema=False)
+    def spa(full_path: str = ""):
+        candidate = os.path.normpath(os.path.join(SPA_DIST, full_path))
+        # serve root-level static files (vite.svg, favicon); else the SPA shell
+        if full_path and candidate.startswith(_spa_root) and os.path.isfile(candidate):
+            return FileResponse(candidate)
+        return FileResponse(os.path.join(SPA_DIST, "index.html"))
