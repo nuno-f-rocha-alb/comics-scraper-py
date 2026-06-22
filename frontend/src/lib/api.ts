@@ -174,9 +174,11 @@ export const postJSON = <T = { updated?: number; deleted?: number }>(
 export const getSeriesDetail = (id: number) => http<SeriesDetail>(`/api/series/${id}/detail`)
 export const getIssues = (id: number, force = false) =>
   http<IssuesData>(`/api/series/${id}/issues${force ? "?force=true" : ""}`)
+// issue numbers can be decimals/strings (#1.5, #1a) → encode the path segment
+const iss = (n: string | number) => encodeURIComponent(String(n))
 export const toggleIssueMonitor = (id: number, number: string | number, type: IssueType) =>
   http<{ monitored: boolean }>(
-    `/api/series/${id}/issues/${number}/monitor?type=${type}`,
+    `/api/series/${id}/issues/${iss(number)}/monitor?type=${type}`,
     { method: "POST" },
   )
 export const monitorAll = (id: number) =>
@@ -184,9 +186,9 @@ export const monitorAll = (id: number) =>
 export const unmonitorAll = (id: number) =>
   http<{ ok: boolean }>(`/api/series/${id}/monitor-all`, { method: "DELETE" })
 export const downloadIssue = (id: number, number: string | number) =>
-  http<{ status: string }>(`/api/series/${id}/issues/${number}/download`, { method: "POST" })
+  http<{ status: string }>(`/api/series/${id}/issues/${iss(number)}/download`, { method: "POST" })
 export const deleteIssue = (id: number, number: string | number, type: IssueType) =>
-  http<{ ok: boolean }>(`/api/series/${id}/issues/${number}?type=${type}`, { method: "DELETE" })
+  http<{ ok: boolean }>(`/api/series/${id}/issues/${iss(number)}?type=${type}`, { method: "DELETE" })
 export const bulkDeleteIssues = (id: number, items: { number: string | number; type: IssueType }[]) =>
   postJSON<{ deleted: number; errors: string[] }>(`/api/series/${id}/issues/bulk/delete`, { items })
 export const scanSeries = (id: number) =>
@@ -194,9 +196,9 @@ export const scanSeries = (id: number) =>
 export const deleteSeries = (id: number) =>
   http<{ deleted: number }>(`/api/series/${id}`, { method: "DELETE" })
 export const getIssueMetadata = (id: number, number: string | number, metron = false) =>
-  http<MetadataFields>(`/api/series/${id}/issues/${number}/metadata${metron ? "?source=metron" : ""}`)
+  http<MetadataFields>(`/api/series/${id}/issues/${iss(number)}/metadata${metron ? "?source=metron" : ""}`)
 export const saveIssueMetadata = (id: number, number: string | number, fields: Record<string, string>) =>
-  postJSON<{ ok: boolean }>(`/api/series/${id}/issues/${number}/metadata`, fields)
+  postJSON<{ ok: boolean }>(`/api/series/${id}/issues/${iss(number)}/metadata`, fields)
 export const getSeriesXml = (id: number) =>
   http<{ fields: Record<string, string> }>(`/api/series/${id}/series-xml`)
 export const saveSeriesXml = (id: number, fields: Record<string, string>) =>
