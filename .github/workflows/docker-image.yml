@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - main  # Runs when you push to the main branch
+  # Allow rebuilding on demand (e.g. to republish a rollback image).
+  workflow_dispatch:
 
 jobs:
   build-and-push:
@@ -19,11 +21,13 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Build Docker image
-        run: docker build -t nunobifes/comics-scraper-py .
-
-      - name: Tag Docker image
-        run: docker tag nunobifes/comics-scraper-py nunobifes/comics-scraper-py:latest
-
-      - name: Push Docker image
-        run: docker push nunobifes/comics-scraper-py:latest
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          # :latest for the running stack, plus an immutable :<sha> tag so a
+          # specific build can always be pinned or rolled back to.
+          tags: |
+            nunobifes/comics-scraper-py:latest
+            nunobifes/comics-scraper-py:${{ github.sha }}
