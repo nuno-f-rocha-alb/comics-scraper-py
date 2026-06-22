@@ -293,3 +293,45 @@ backend mount itself is verified in Docker, not on host.)
 
 **Deferred:** legacy Jinja templates + HTML routes stay until parity is signed off (per the brief). graphify
 refresh = §14.
+
+## §14 — Knowledge-graph refresh (graphify)
+
+Deferred for the whole migration; refreshed once at the end via `/graphify --update` (incremental — only the
+62 new/changed files re-extracted, not the whole repo). 45 code files → AST (deterministic, free, 418 nodes /
+916 edges); 13 docs (journal, specs, templates) → one general-purpose extraction subagent (60 nodes / 49 edges
+/ 3 hyperedges). Skipped the 3 detected "images" (favicon/vite/icons `.svg` — pure assets, no graph value) and
+the transient `coderabbit-gate.txt`. Merged into the existing `graphify-out/graph.json`: **1025 nodes, 1657
+edges, 92 communities** (graph artifacts are gitignored). Communities auto-labeled by highest-degree member
+(hand-naming 92 isn't worth it). God nodes confirm the domain core: `Series`, `AppSetting`, `DownloadJob`,
+`MonitoredIssue`, `MetronCache`, with `series_list.html template` as the top template bridge. Outputs:
+`graphify-out/graph.html` + `GRAPH_REPORT.md`.
+
+---
+
+## Migration complete — summary
+
+**All 10 pages migrated** to React SPA (Vite + React 19 + TS + Tailwind v4 + shadcn/ui + TanStack Query + RHF +
+Zod + react-router), FastAPI backend unchanged, legacy Jinja pages retained until parity sign-off.
+
+**Pages (commit):** Series list (`ffc275d`) · Series edit (`4f87ac5`) · Series add (`a084d50`) · Series detail
+(`b5eac41`) · Downloads (`582264b`) · Library (`f2cdc9e`) · Scheduler (`28d47e2`) · Releases (`9a2f917`) ·
+Calendar (`09b1035`) · Logs (`4138d14`) · prod serve under /app (`a23716f`).
+
+**JSON endpoints added (all reuse existing helpers; Jinja routes untouched):** `/api/series/overview`,
+`GET|PUT /api/series/{id}`, `POST /api/series`, `/api/metron/results`, `/api/verify-search/json`, the
+`/api/series/{id}/*` detail block (detail, issues, monitor, monitor-all, download, delete, scan, metadata,
+series-xml, rename-preview/apply), `/api/series/bulk/*`, `/api/downloads*`, `/api/library/*`, `/api/scheduler/*`,
+`/api/releases`, `/api/calendar`, `/api/logs*`. Shared serializers: `_series_dict`, `_job_dict`,
+`_scan_status_json`, `_scheduler_status_json`, `_classify_log_line`.
+
+**Root-cause fixes folded in along the way:** path-traversal guards (`commonpath` on rename, dir-boundary
+`startswith` on the SPA catch-all); decimal issue-number regex `#(\d+(?:\.\d+)?)` (was truncating `#1.5`→`1`
+and overwriting files) across downloader/search/retag; `requests` CVE bump; `datetime.now(timezone.utc)`;
+several uncaught-`int()`/`strptime` crash guards; `.gitignore` `lib/` rule that was silently swallowing
+`frontend/src/lib/`; Pydantic `field_validator` blank/duplicate-series rejection (409 not 500); `parseIntOrNull`
+NaN hardening; per-open form prefill via ref so background refetches can't clobber unsaved edits.
+
+**Deferred (not done, by design):** retiring the legacy Jinja templates + HTML routes (waiting on parity
+sign-off); SPA bundle is one 622 kB chunk (code-splitting not pursued — YAGNI until it matters); the backend
+`/app` StaticFiles mount itself is only verifiable in Docker (sqlalchemy/comicapi are Docker-only on the host),
+so it was validated via a stdlib replica of the serving contract rather than a live uvicorn.
