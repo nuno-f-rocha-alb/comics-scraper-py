@@ -220,3 +220,17 @@ Download / Downloaded / Queued state), feed summary, Refresh. Download reuses
 
 **Gate:** `npm run build` ✅. Live screenshot ✅ matches releases.html (3 matches/10 posts, all 3 states).
 CodeRabbit: 2 minor, both skipped — PT error string is exact parity with releases.html; fmtDate already handles empty (falsy).
+
+## §11 — Page 9 (Calendar)
+
+**Backend:** `GET /api/calendar?view=&date=` returns the computed grid (weeks → day cells with events) +
+header_label/prev_ref/next_ref/today_iso/current_ref, reusing the server's `_calendar_range`,
+`_calendar_shift`, `_load_calendar_events` so the date math never diverges from the Jinja page.
+
+**Frontend:** `Calendar` page (`/calendar`) — real month/week grid (7-col Mon-start), prev/Today/next nav +
+Month/Week switcher (state in URL `view`/`date`), legend, day cells with status-coloured event chips
+(downloaded/today/missing/upcoming → border colour), today highlight, dimmed out-of-month days. Events link
+to series detail.
+
+**Gate:** `npm run build` ✅. Live screenshot ✅ matches calendar.html (June 2026 grid, 4 events across all
+statuses, today ring, dimmed trailing days). CodeRabbit: 0 findings (clean). Note: a week-view bug seen in preview was mock-only — real backend/page correct.

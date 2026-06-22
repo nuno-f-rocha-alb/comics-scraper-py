@@ -2878,6 +2878,56 @@ def calendar_page(
     )
 
 
+@app.get("/api/calendar")
+def api_calendar(
+    view: str = "month",
+    date_str: str = Query("", alias="date"),
+    db: Session = Depends(get_db),
+):
+    """JSON calendar grid (weeks of day cells with events) for the React page."""
+    if view not in ("month", "week"):
+        view = "month"
+    try:
+        ref = date.fromisoformat(date_str) if date_str else date.today()
+    except ValueError:
+        ref = date.today()
+
+    start, end = _calendar_range(view, ref)
+    events = _load_calendar_events(db, start, end)
+
+    weeks: list[list[dict]] = []
+    cursor = start
+    today = date.today()
+    while cursor <= end:
+        week: list[dict] = []
+        for _ in range(7):
+            iso = cursor.isoformat()
+            week.append({
+                "iso": iso,
+                "day": cursor.day,
+                "is_today": cursor == today,
+                "in_view_month": (view == "week") or cursor.month == ref.month,
+                "events": events.get(iso, []),
+            })
+            cursor += timedelta(days=1)
+        weeks.append(week)
+
+    if view == "week":
+        header_label = f"{start.strftime('%b %d')} — {end.strftime('%b %d, %Y')}"
+    else:
+        header_label = ref.strftime("%B %Y")
+
+    return {
+        "view": view,
+        "weeks": weeks,
+        "header_label": header_label,
+        "prev_ref": _calendar_shift(view, ref, -1).isoformat(),
+        "next_ref": _calendar_shift(view, ref, +1).isoformat(),
+        "today_iso": date.today().isoformat(),
+        "current_ref": ref.isoformat(),
+    }
+
+
 # ── Releases (RSS feed) ────────────────────────────────────────────────────────
 
 

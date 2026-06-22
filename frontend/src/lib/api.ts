@@ -276,6 +276,35 @@ export interface ReleaseMatch {
 export const getReleases = () =>
   http<{ matches: ReleaseMatch[]; feed_size: number; error: string | null }>("/api/releases")
 
+// ── Calendar ──────────────────────────────────────────────────────────────────
+export type CalEventStatus = "downloaded" | "today" | "missing" | "upcoming"
+export interface CalEvent {
+  series_id: number
+  series_name: string
+  issue_number: string
+  issue_name: string
+  status: CalEventStatus
+  is_annual: boolean
+}
+export interface CalDay {
+  iso: string
+  day: number
+  is_today: boolean
+  in_view_month: boolean
+  events: CalEvent[]
+}
+export interface CalendarData {
+  view: "month" | "week"
+  weeks: CalDay[][]
+  header_label: string
+  prev_ref: string
+  next_ref: string
+  today_iso: string
+  current_ref: string
+}
+export const getCalendar = (view: "month" | "week", date: string) =>
+  http<CalendarData>(`/api/calendar?view=${view}${date ? `&date=${date}` : ""}`)
+
 // Form-post endpoints that redirect on success (cache refresh / cover sync).
 export const postAction = (url: string) =>
   fetch(url, { method: "POST" }).then((r) => {
