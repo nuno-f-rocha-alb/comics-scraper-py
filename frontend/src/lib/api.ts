@@ -248,6 +248,19 @@ export const getLibraryStatus = () => http<ScanStatus>("/api/library/status")
 export const startLibraryScan = (force: boolean) =>
   http<ScanStatus & { started: boolean }>(`/api/library/scan?force=${force}`, { method: "POST" })
 
+// ── Metron refresh (background) ───────────────────────────────────────────────
+export interface MetronRefreshStatus {
+  running: boolean
+  last_refresh_at: string | null
+  last_error: string | null
+  progress: { current: string; done: number; total: number }
+  last_result: { refreshed?: number; ids_found?: number; skipped?: number; errors?: number }
+}
+export const getMetronRefreshStatus = () =>
+  http<MetronRefreshStatus>("/api/metron/refresh/status")
+export const startMetronRefresh = () =>
+  http<MetronRefreshStatus & { started: boolean }>("/api/metron/refresh", { method: "POST" })
+
 // ── Scheduler ─────────────────────────────────────────────────────────────────
 export interface SchedulerStatus {
   running: boolean

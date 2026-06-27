@@ -30,7 +30,7 @@ Stack: FastAPI + SQLAlchemy + SQLite + Bootstrap 5 + HTMX + APScheduler
 
 ### Series model columns
 `id, publisher, series_name, year, comicvine_volume_id, metron_series_id, annual_comicvine_volume_id, getcomics_search_name, cover_image_url, total_issues, enabled, created_at`
-- `cover_image_url` / `total_issues` — populated from Metron on add or via POST `/api/sync-covers`
+- `cover_image_url` / `total_issues` — populated from Metron on add or via the background refresh (POST `/api/metron/refresh`)
 - New columns added via `migrate_columns()` in `database.py` (ALTER TABLE — safe for existing DBs)
 
 ### Routes
@@ -48,7 +48,8 @@ Stack: FastAPI + SQLAlchemy + SQLite + Bootstrap 5 + HTMX + APScheduler
 | DELETE | `/series/{id}` | Delete (HTMX) |
 | GET | `/series/{id}/issues` | HTMX partial — issues table from Metron vs local files |
 | GET | `/api/series` | JSON list of all series |
-| POST | `/api/sync-covers` | Fetch covers + issue counts from Metron for series missing them |
+| POST | `/api/metron/refresh` | Kick background Metron refresh (tracked series: meta/covers/issues/pause). Returns immediately; SPA polls status. Replaces old sync-covers + cache/refresh |
+| GET | `/api/metron/refresh/status` | Background-refresh status (running, progress, last_error, last_result) |
 | GET | `/api/metron/search?name=` | HTMX partial — Metron search results with cover art |
 | GET | `/api/metron/series/{id}/add-form` | HTMX partial — pre-filled add form |
 | GET | `/api/verify-search` | HTMX partial — live getcomics.org page-1 check |

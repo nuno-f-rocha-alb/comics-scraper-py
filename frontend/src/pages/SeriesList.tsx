@@ -1,13 +1,13 @@
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { Link, useSearchParams } from "react-router-dom"
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 import {
   Book,
   BookOpen,
   Bookmark,
   CheckSquare,
-  Database,
+  Loader2,
   Pause,
   Play,
   Plus,
@@ -17,9 +17,10 @@ import {
   XCircle,
 } from "lucide-react"
 import {
+  getMetronRefreshStatus,
   getSeriesOverview,
-  postAction,
   postJSON,
+  startMetronRefresh,
   type SeriesCard,
   type SeriesStatus,
 } from "@/lib/api"
@@ -138,14 +139,26 @@ export function SeriesList() {
 
   const refetch = () => qc.invalidateQueries({ queryKey: ["series-overview"] })
 
-  const headerAction = useMutation({
-    mutationFn: (url: string) => postAction(url),
-    onSuccess: () => {
-      toast.success("Done")
-      refetch()
-    },
-    onError: (e: Error) => toast.error(`Failed: ${e.message}`),
+  const metron = useQuery({
+    queryKey: ["metron-refresh-status"],
+    queryFn: getMetronRefreshStatus,
+    refetchInterval: (q) => (q.state.data?.running ? 2000 : false),
   })
+  // When a run finishes, refresh the cards (covers/progress may have changed).
+  const wasRunning = useRef(false)
+  useEffect(() => {
+    if (wasRunning.current && !metron.data?.running) refetch()
+    wasRunning.current = !!metron.data?.running
+  }, [metron.data?.running]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const startRefresh = () =>
+    startMetronRefresh()
+      .then((r) => {
+        toast.success(r.started ? "Refreshing from Metron…" : "A refresh is already running")
+        qc.setQueryData(["metron-refresh-status"], r)
+        qc.invalidateQueries({ queryKey: ["metron-refresh-status"] })
+      })
+      .catch((e: Error) => toast.error(`Failed: ${e.message}`))
 
   const ids = [...selected]
   const runBulk = async (fn: () => Promise<void>) => {
@@ -198,20 +211,29 @@ export function SeriesList() {
               : `${visible.length} of ${allSeries.length} series`}
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {metron.data?.running ? (
+            <span className="inline-flex items-center gap-1.5 text-sm text-muted-foreground">
+              <Loader2 className="size-3.5 animate-spin" />
+              Refreshing
+              {metron.data.progress.total > 0 && (
+                <span className="font-medium text-foreground">
+                  {" "}({metron.data.progress.done}/{metron.data.progress.total})
+                </span>
+              )}
+            </span>
+          ) : metron.data?.last_error ? (
+            <span className="text-sm text-destructive" title={metron.data.last_error}>
+              Last refresh failed
+            </span>
+          ) : null}
           <Button
             variant="outline"
             size="sm"
-            onClick={() => headerAction.mutate("/api/metron/cache/refresh")}
+            onClick={startRefresh}
+            disabled={metron.data?.running}
           >
-            <Database /> Refresh Cache
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => headerAction.mutate("/api/sync-covers")}
-          >
-            <RefreshCw /> Sync Covers
+            <RefreshCw /> Refresh from Metron
           </Button>
           <Button size="sm" asChild>
             <Link to="/series/add">

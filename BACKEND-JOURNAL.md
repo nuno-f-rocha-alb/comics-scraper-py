@@ -111,3 +111,50 @@ Metron mocked): failed fetch → not cached / retryable; success → cached; suc
 **Still open for the heavier Metron work (recommend a fresh session — structural, not bugs):** the
 "refresh all" path paginates every series synchronously (slow, blocks the request); fixed 2s inter-call
 delays; cold-cache first-load latency. Candidates: background/async refresh, batching, smarter TTL.
+
+## §4 — Metron overhaul: async refresh + unified path + smarter TTL (`flow/metron-async-refresh`)
+
+The two web "refresh from Metron" buttons ran **synchronously on the request thread**; a Metron burst
+limit (`metron_client.get(block=True)`) could `time.sleep` 60s+, holding the HTTP request open for
+minutes. `/api/metron/cache/refresh` additionally paginated the **entire Metron series catalog**
+(thousands of series) every click — pure pre-warm, since `_metron_search_json` already falls back to a
+live `/series/?name=` API call. Built via `/flow` (spec → build → objective gate); spec in
+`specs/metron-async-refresh.md`, gate record in `reviews/metron-async-refresh.md`.
+
+**Shipped:**
+- **`web/metron_refresh.py`** — background daemon module mirroring `web/scanner.py` (`get_status()` +
+  `run_refresh(force)`, already-running guard, polled status). Refresh now runs off the request thread;
+  `block=True` calls may sleep on a rate limit harmlessly. Per-series `commit`/`rollback` so one failure
+  can't discard earlier series; lazy `web.app` import inside the guarded `try` (no import cycle, and an
+  import failure still clears `_running`).
+- **`_refresh_one_series(s, db, *, force)`** in `web/app.py` — single per-series path replacing the
+  duplicated logic in the old `sync_covers`, `metron_cache_refresh` tail, and `main._refresh_metron_caches`:
+  cv_id→metron_id discovery → **TTL-gated** detail refresh → first-issue cover fallback → issue-list
+  cache → pause recompute. `RateLimitedError` propagates so the worker stops instead of hammering.
+- **Smarter TTL** (`Series.metron_refreshed_at`, +`migrate_columns()` ALTER): the slow-changing **detail**
+  call (cover/status/total_issues) is skipped when refreshed within 7 days and not forced. Manual button →
+  `force=True` (always). Scheduler → `force=False` (TTL cuts redundant detail calls). **Crucially the
+  issue-list refresh ALWAYS runs (`force=True`) and pause is ALWAYS recomputed**, even on the TTL-skip
+  path — preserving the §`_refresh_metron_caches` guarantee that new Metron issues stay visible to the
+  scraper, and that completed series still auto-pause.
+- **Full-catalog pre-warm dropped** — `/api/metron/cache/refresh` + `/api/sync-covers` removed; search
+  relies on its existing live-API fallback. New endpoints: `POST /api/metron/refresh` (kick) +
+  `GET /api/metron/refresh/status` (poll). SPA: two header buttons → one "Refresh from Metron" + spinner/
+  progress (polls `running ? 2000 : false`, same pattern as the Library page).
+
+**Gate:** Docker pytest 32 green (was 20; +12 in `tests/test_metron_refresh.py` — force/TTL-skip/stale/
+cv-id/noop/rate-limit-propagation, run-guard, endpoint wiring, removed-route 404/405). `npm run build`
+clean. CodeRabbit clean on changed files (5 majors fixed: RateLimitedError swallow, TTL-skip missing
+pause recompute, scheduler hiding new issues, dirty-session rollback, `_running` stuck on import failure;
+deferred findings were all in untouched pre-existing files — `retag_comics`/`config.py`/`utils.ts`/
+`Downloads.tsx`/`test_issue_format.py`).
+
+**Net −19 lines** despite the new module (two synchronous endpoints deleted).
+
+**Root causes worth remembering:** (1) "smarter TTL" almost regressed new-issue visibility — the detail
+call and the issue-list call have *different* freshness needs; only the detail call is TTL-safe. (2) A
+single ORM session shared across a loop must commit/rollback per item, not once at the end, or a late
+failure loses everything. (3) Broad `except Exception` in a helper on a rate-limit-sensitive path
+silently defeats the `block=False`/`RateLimitedError` stop signal.
+
+**Next (per goal order): RSS feed-driven monitoring** — keep search-based back-catalog download working.
