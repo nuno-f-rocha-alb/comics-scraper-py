@@ -157,4 +157,43 @@ single ORM session shared across a loop must commit/rollback per item, not once 
 failure loses everything. (3) Broad `except Exception` in a helper on a rate-limit-sensitive path
 silently defeats the `block=False`/`RateLimitedError` stop signal.
 
-**Next (per goal order): RSS feed-driven monitoring** — keep search-based back-catalog download working.
+## §5 — RSS feed-driven monitoring (`flow/rss-monitoring`)
+
+Sonarr-style monitoring: a scheduled RSS poll auto-enqueues downloads for new issues of monitored series
+(the **main** path). The per-series getcomics **search** scraper stays scheduled as the **back-catalog
+net** (user decision — both run in parallel, same download queue, no double-download). Built via `/flow`;
+spec `specs/rss-monitoring.md`, gate `reviews/rss-monitoring.md`.
+
+Much of the plumbing already existed (`comic_search/rss_feed.py`, `_match_feed_entries`, `/api/releases`,
+`Releases.tsx` with manual Download). This unit added the **automation**:
+- **`comic_search/rss_monitor.py:poll_feed_and_enqueue()`** — reuses `_match_feed_entries`, auto-enqueues
+  `source="rss"` jobs carrying the feed post URL. **Dedup needs no new table:** skip if a local file
+  exists OR any `DownloadJob` already covers (series, issue) in any status — so a *failed* download is not
+  retried every poll (no retry-storm). Re-evaluating ~10 in-memory feed entries per tick is free.
+- **Auto-download safety gate** — respects `enabled`/auto-pause, selective `MonitoredIssue` sets, and
+  `issue_min` (normalized comparisons), so auto-download honours the same rules as the scraper.
+- **`web/worker.py`** — `_download_issue(..., post_url=)`: when a job has a URL (RSS / Releases), download
+  it **directly** instead of re-searching getcomics; the search path is extracted to `_search_for_issue`.
+- **`web/scheduler.py`** — second APScheduler job `rss_poll` every `RSS_POLL_MINUTES` (default 30,
+  parse-guarded), independent of the `scraper` job; `rss_next_run_at` in status.
+- **`DownloadJob.url`** column + migration; the manual Releases "Download" now passes the feed URL too
+  (was re-searching despite already knowing the URL).
+
+**Security:** the worker fetches `job.url` server-side, so the download endpoint **allowlists
+getcomics.org** (SSRF guard, `util.is_getcomics_url`); the poll also drops non-getcomics feed URLs.
+
+**Gate:** 41 pytest (was 32; +9), `npm run build` clean, CodeRabbit 14→1. Fixed the critical SSRF I
+introduced + worker decimal-filename parity + scheduler env-parse guard + normalized dedup. The lone
+remaining finding is the **§2 cross-layer decimal-normalization backlog** (`str(int(float(n)))` truncates
+`#1.5`→`1` across matching/overview/RSS) — deferred: it needs a coordinated change + stored-key migration,
+not a piecemeal RSS edit.
+
+**Backlog surfaced by CodeRabbit (pre-existing, untouched — for a future unit):** `api_rename_apply` isn't
+scoped to the series_id's folder (contained within `COMICS_BASE_DIR`, so not arbitrary FS — but should be
+series-scoped); `_find_issue_file`/`_extract_nums` decimal truncation (the §2 item); `web/scanner.py` lazy
+import outside its try/finally (same class fixed in `metron_refresh` in §4); SeriesAdd/Edit leave stale
+verify results on a failed retry; stale `specs/series-list.md`.
+
+**Next:** download-staging (spec'd in `specs/download-staging.md` — stage downloads in
+`COMICS_BASE_DIR/.downloads`, tag+convert+rename there, atomic-move the finished `.cbz` to the Komga
+library) and the decimal-normalization backlog unit.

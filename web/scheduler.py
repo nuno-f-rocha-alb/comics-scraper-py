@@ -13,6 +13,14 @@ log = logging.getLogger(__name__)
 _DEFAULT_HOURS = int(os.getenv("SCHEDULE_INTERVAL_HOURS", "24"))
 _JOB_ID = "scraper"
 
+# RSS feed poll — the main download path (§5). Runs independently of the
+# per-series search scraper, which stays as the back-catalog net.
+_RSS_JOB_ID = "rss_poll"
+try:
+    _RSS_POLL_MINUTES = max(1, int(os.getenv("RSS_POLL_MINUTES", "30")))
+except (TypeError, ValueError):
+    _RSS_POLL_MINUTES = 30
+
 _scheduler = BackgroundScheduler()
 _running = False
 _last_run_at: datetime | None = None
@@ -86,6 +94,15 @@ def _wrapped_run() -> None:
             _running = False
 
 
+def _wrapped_rss_poll() -> None:
+    """Run the RSS feed poll; never let a failure crash the scheduler."""
+    try:
+        from comic_search.rss_monitor import poll_feed_and_enqueue
+        poll_feed_and_enqueue()
+    except Exception as exc:
+        log.warning("RSS poll failed: %s", exc)
+
+
 def trigger_now() -> None:
     """Run the scraper immediately in a background thread."""
     t = threading.Thread(target=_wrapped_run, daemon=True, name="scraper-manual")
@@ -98,12 +115,15 @@ def is_running() -> bool:
 
 def get_status() -> dict:
     job = _scheduler.get_job(_JOB_ID)
+    rss_job = _scheduler.get_job(_RSS_JOB_ID)
     mode, value = load_config()
     return {
         "running": _running,
         "last_run_at": _last_run_at,
         "last_run_error": _last_run_error,
         "next_run_at": job.next_run_time if job else None,
+        "rss_next_run_at": rss_job.next_run_time if rss_job else None,
+        "rss_poll_minutes": _RSS_POLL_MINUTES,
         "mode": mode,
         "value": value,
     }
@@ -174,8 +194,17 @@ def start_scheduler() -> None:
         id=_JOB_ID,
         next_run_time=datetime.now(),
     )
+    _scheduler.add_job(
+        _wrapped_rss_poll,
+        trigger=IntervalTrigger(minutes=_RSS_POLL_MINUTES),
+        id=_RSS_JOB_ID,
+        next_run_time=datetime.now(),
+    )
     _scheduler.start()
-    log.info("Scheduler started — mode=%s value=%s", mode, value)
+    log.info(
+        "Scheduler started — scraper mode=%s value=%s, RSS poll every %dm",
+        mode, value, _RSS_POLL_MINUTES,
+    )
 
 
 def stop_scheduler() -> None:
