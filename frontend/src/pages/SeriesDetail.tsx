@@ -44,6 +44,7 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { cn } from "@/lib/utils"
 import { MetadataSheet } from "@/components/MetadataSheet"
 import { SeriesNotes } from "@/components/SeriesNotes"
+import { useConfirm } from "@/components/confirm"
 
 const fmtDate = (d: string | null) =>
   d ? new Date(d + (d.length === 10 ? "T00:00:00" : "")).toLocaleDateString(undefined, {
@@ -55,6 +56,7 @@ export function SeriesDetail() {
   const seriesId = Number(id)
   const nav = useNavigate()
   const qc = useQueryClient()
+  const confirm = useConfirm()
 
   const detail = useQuery({
     queryKey: ["series-detail", seriesId],
@@ -167,8 +169,8 @@ export function SeriesDetail() {
                 <Files /> Preview Rename
               </Button>
               <Button variant="outline" size="sm" className="ml-auto text-destructive"
-                onClick={() => {
-                  if (confirm(`Delete ${s.series_name}? This cannot be undone.`))
+                onClick={async () => {
+                  if (await confirm({ title: `Delete ${s.series_name}?`, description: "This cannot be undone.", confirmText: "Delete", destructive: true }))
                     action(() => deleteSeries(seriesId), "Deleted", () => nav("/series"))
                 }}>
                 <Trash2 /> Delete
@@ -262,8 +264,8 @@ export function SeriesDetail() {
           <div className="flex items-center gap-3">
             <span className="text-sm font-semibold">{selected.size} selected</span>
             <Button variant="outline" size="sm" className="text-destructive"
-              onClick={() => {
-                if (!confirm(`Delete ${selected.size} local file(s)? This removes the .cbz/.cbr from disk.`)) return
+              onClick={async () => {
+                if (!(await confirm({ title: `Delete ${selected.size} local file(s)?`, description: "This removes the .cbz/.cbr from disk.", confirmText: "Delete", destructive: true }))) return
                 bulkDeleteIssues(seriesId, selItems).then((r) => {
                   toast.success(`Deleted ${r.deleted} file(s)`)
                   r.errors?.slice(0, 3).forEach((e) => toast.error(e))
@@ -308,6 +310,7 @@ function IssuesTable({
   onEdit: (num: string) => void
   onChange: () => void
 }) {
+  const confirm = useConfirm()
   const act = (fn: () => Promise<unknown>, ok: string) =>
     fn().then(() => { toast.success(ok); onChange() }).catch((e: Error) => toast.error(`Failed: ${e.message}`))
 
@@ -352,7 +355,7 @@ function IssuesTable({
                 <td className="py-1.5">
                   {i.status === "missing" ? (
                     <button className={cn("inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs", badge.cls)}
-                      onClick={() => { if (confirm(`Download #${i.number}?`)) act(() => downloadIssue(seriesId, i.number), "Queued") }}>
+                      onClick={async () => { if (await confirm({ title: `Download #${i.number}?`, confirmText: "Download" })) act(() => downloadIssue(seriesId, i.number), "Queued") }}>
                       <Icon className="size-3.5" /> {badge.label} <Download className="size-3" />
                     </button>
                   ) : (
@@ -367,7 +370,7 @@ function IssuesTable({
                         <Pencil className="size-3.5" />
                       </button>
                       <button className="text-muted-foreground hover:text-destructive" title="Delete local file"
-                        onClick={() => { if (confirm(`Delete local file for #${i.number}?`)) act(() => deleteIssue(seriesId, i.number, type), "Deleted") }}>
+                        onClick={async () => { if (await confirm({ title: `Delete local file for #${i.number}?`, confirmText: "Delete", destructive: true })) act(() => deleteIssue(seriesId, i.number, type), "Deleted") }}>
                         <Trash2 className="size-3.5" />
                       </button>
                     </span>

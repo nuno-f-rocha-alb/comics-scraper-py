@@ -27,6 +27,7 @@ import {
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { useConfirm } from "@/components/confirm"
 import { cn } from "@/lib/utils"
 
 const fmtBytes = (n: number | null | undefined) => {
@@ -56,6 +57,7 @@ type Filter = "all" | "scraper" | "manual" | "failed"
 
 export function Downloads() {
   const qc = useQueryClient()
+  const confirm = useConfirm()
   const [filter, setFilter] = useState<Filter>("all")
 
   const active = useQuery({
@@ -117,7 +119,7 @@ export function Downloads() {
                   </div>
                   <StatusBadge status={j.status} />
                   <Button variant="ghost" size="sm" className="text-destructive"
-                    onClick={() => { if (confirm("Cancel this download?")) act(() => cancelDownload(j.id), "Cancelling…") }}>
+                    onClick={async () => { if (await confirm({ title: "Cancel this download?", confirmText: "Cancel download", cancelText: "Keep", destructive: true })) act(() => cancelDownload(j.id), "Cancelling…") }}>
                     <XCircle /> Cancel
                   </Button>
                 </div>
@@ -142,7 +144,7 @@ export function Downloads() {
           </div>
           {jobs.length > 0 && (
             <Button size="sm" variant="outline" className="ml-auto text-destructive"
-              onClick={() => { if (confirm("Clear all completed and failed jobs?")) act(clearDownloads, "Cleared") }}>
+              onClick={async () => { if (await confirm({ title: "Clear all completed and failed jobs?", confirmText: "Clear all", destructive: true })) act(clearDownloads, "Cleared") }}>
               <Trash2 /> Clear All
             </Button>
           )}

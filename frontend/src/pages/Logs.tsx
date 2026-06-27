@@ -10,6 +10,7 @@ import {
 } from "@/lib/api"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import { useConfirm } from "@/components/confirm"
 
 const POLL_MS = 2000
 
@@ -18,6 +19,7 @@ const LEVELS = ["", "ERROR", "WARNING", "INFO"]
 
 export function Logs() {
   const qc = useQueryClient()
+  const confirm = useConfirm()
   const info = useQuery({ queryKey: ["logs-info"], queryFn: getLogs })
 
   const [filename, setFilename] = useState("")
@@ -60,8 +62,8 @@ export function Logs() {
 
   const refreshFiles = () => qc.invalidateQueries({ queryKey: ["logs-info"] })
 
-  const onDelete = (name: string) => {
-    if (!confirm(`Delete ${name}?`)) return
+  const onDelete = async (name: string) => {
+    if (!(await confirm({ title: `Delete ${name}?`, confirmText: "Delete", destructive: true }))) return
     deleteLog(name)
       .then(() => {
         toast.success(`${name} deleted`)
@@ -70,8 +72,8 @@ export function Logs() {
       .catch((e) => toast.error(e instanceof Error ? e.message : String(e)))
   }
 
-  const onCleanup = () => {
-    if (!confirm(`Delete all log files older than ${retention} days?`)) return
+  const onCleanup = async () => {
+    if (!(await confirm({ title: `Delete all log files older than ${retention} days?`, confirmText: "Delete", destructive: true }))) return
     cleanupLogs()
       .then((r) => {
         toast.success(`${r.deleted} log(s) deleted`)
