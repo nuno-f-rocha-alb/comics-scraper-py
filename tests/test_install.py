@@ -112,7 +112,7 @@ def test_worker_installs_to_library_not_staging(monkeypatch, tmp_path):
     )
     monkeypatch.setattr(proc, "get_comic_metadata", lambda *a, **k: None)
 
-    name = worker._download_issue(_Series(), "1", post_url="http://getcomics.org/p")
+    name = worker._download_issue(_Series(), "1", post_url="https://getcomics.org/p")
 
     series_dir = os.path.join(str(tmp_path), "Image", "Saga (2020)")
     assert name == "Saga #001 (2020).cbz"

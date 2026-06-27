@@ -1,5 +1,7 @@
 """§5 RSS monitoring — the auto-enqueue poll + the worker's direct-URL path.
 Feed and all network are mocked; temp DB via conftest."""
+import pytest
+
 import web.worker as worker
 from comic_search.rss_feed import FeedEntry
 from comic_search.rss_monitor import poll_feed_and_enqueue
@@ -137,7 +139,17 @@ def test_worker_post_url_skips_search(monkeypatch):
         def to_scraper_tuple(self):
             return ("Image", "Spawn", "1992", None, None, "1", None, 1, None)
 
-    out = worker._download_issue(_S(), "350", post_url="http://gc/post")
+    out = worker._download_issue(_S(), "350", post_url="https://getcomics.org/comic/spawn-350")
 
     assert called["search"] is False
     assert out == "Spawn #350.cbz"
+
+
+def test_worker_rejects_foreign_post_url():
+    # Sink-side guard: even if a bad url reaches the worker, never fetch it.
+    class _S:
+        def to_scraper_tuple(self):
+            return ("Image", "Spawn", "1992", None, None, "1", None, 1, None)
+
+    with pytest.raises(Exception, match="non-getcomics"):
+        worker._download_issue(_S(), "350", post_url="https://evil.example/x")
