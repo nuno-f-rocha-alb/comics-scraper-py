@@ -946,12 +946,39 @@ def api_scheduler_config(payload: ScheduleConfig):
 
 
 
+def _scan_series_dir(s: Series) -> tuple[int, set[str]]:
+    """One listdir -> (cbz/cbr count, issue-number set). The comics volume is a
+    slow NFS/mergerfs mount, so the overview scans each folder once instead of
+    twice (count + number-set used to each do their own listdir)."""
+    folder = _series_dir(s)
+    if not os.path.isdir(folder):
+        return 0, set()
+    count = 0
+    nums: set[str] = set()
+    for f in os.listdir(folder):
+        if not f.lower().endswith((".cbz", ".cbr")):
+            continue
+        count += 1
+        m = re.search(r"#(\d+(?:\.\d+)?)", f)
+        if m:
+            try:
+                nums.add(str(int(float(m.group(1)))))
+            except ValueError:
+                pass
+    return count, nums
+
+
 def _series_overview(db: Session):
     """Shared computation for the series grid: rows + per-series local counts,
     status classification, and footer stats. Used by both the Jinja page and
     the JSON API so the two never drift."""
     rows = db.query(Series).order_by(Series.publisher, Series.series_name).all()
-    local_counts = {s.id: _count_local_issues(s) for s in rows}
+    # Single filesystem scan per series → count + issue-number set (reused below
+    # by has_missing_past). Halves directory round-trips on the slow comics mount.
+    local_counts: dict[int, int] = {}
+    local_nums: dict[int, set[str]] = {}
+    for s in rows:
+        local_counts[s.id], local_nums[s.id] = _scan_series_dir(s)
 
     # Active downloads by series_id — series that have a queued/downloading job
     active_dl_ids = {
@@ -987,7 +1014,7 @@ def _series_overview(db: Session):
     def has_missing_past(s: Series) -> bool:
         """True if any issue with store_date <= today (or unknown) is missing
         from the local folder. Future-only gaps don't count."""
-        local_reg = _local_issue_numbers(s)
+        local_reg = local_nums[s.id]  # reuse the single scan above (no 2nd listdir)
         local_ann = _local_annual_issue_numbers(s) if s.metron_annual_series_id else set()
         for mid, kind in (
             (s.metron_series_id, "regular"),

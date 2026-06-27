@@ -1,0 +1,11 @@
+# Prod-faithful test image: same python:3.12 + same deps as the runtime stage,
+# plus pytest. Deps are baked into a cached layer; the repo is bind-mounted at
+# run time, so editing code/tests needs no rebuild — only requirements.txt does.
+#
+#   docker build -f Dockerfile.test -t comics-test .
+#   docker run --rm -v "$PWD":/app -w /app comics-test pytest -q
+#
+FROM python:3.12
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt pytest httpx
