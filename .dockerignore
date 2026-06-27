@@ -11,3 +11,9 @@ cache
 *.pyc
 frontend/mock_api.py
 coderabbit-gate.txt
+# Test harness — bind-mounted into the test image at run time, never shipped in prod
+tests
+pytest.ini
+Dockerfile.test
+.venv
+venv

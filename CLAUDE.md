@@ -82,15 +82,28 @@ web/templates/
 - **Phase 4** ✅ — Verify step: live getcomics.org check before saving
 - **Phase 5** ✅ — *arr-style card grid + series detail page with issues list
 
+## Backend tests (`tests/`) — run in a prod-faithful container
+Backend deps (sqlalchemy/comicapi/…) aren't on the host, so tests run inside the same `python:3.12`
+image as prod. `pytest` mocks every external boundary (DB → temp SQLite, comics → temp dir, worker
+stubbed, Metron → `metron_get` fixture), so no network/library state is needed.
+```powershell
+docker build -f Dockerfile.test -t comics-test .            # once; rebuild only when requirements.txt changes
+docker run --rm -v "${PWD}:/app" -w /app comics-test pytest -q
+```
+`pytest.ini` sets `pythonpath = .` so `import web.*` resolves. The harness + Dockerfile.test are
+`.dockerignore`d, so they never bloat the prod image (the test image bind-mounts the repo at run time).
+This is the real gate for backend changes — it ends the "edit blind, deploy, pray" loop.
+
 ## Frontend SPA (`frontend/`) — tooling gotchas
-React SPA (Vite + React 19 + TS + Tailwind v4 + shadcn/ui) migrated from the Jinja UI; served by FastAPI
-under `/app` in prod (legacy Jinja pages kept at `/` until parity sign-off). See `MIGRATION-JOURNAL.md`.
+React SPA (Vite + React 19 + TS + Tailwind v4 + shadcn/ui), **the only UI** — served by FastAPI at `/`
+in prod (root catch-all → index.html; `/api/*` + `/health` 404 as JSON). The legacy Jinja UI was retired
+(MIGRATION-JOURNAL.md §15). See `MIGRATION-JOURNAL.md`.
 - **Typecheck = `cd frontend && npm run build`** (runs `tsc -b` then Vite). Bare `tsc` misses the Vite step
   and the path-alias resolution — don't use it as the gate.
 - **Backend deps are Docker-only on the host** (no sqlalchemy/comicapi locally), so `web/app.py` won't
   import and uvicorn won't run on the host. Verify the SPA against `frontend/mock_api.py` (stdlib,
-  gitignored) via the `.claude/launch.json` "comics-frontend" preview (Vite 5173 → mock 8000). The `/app`
-  StaticFiles mount itself is only testable in Docker.
+  gitignored) via the `.claude/launch.json` "comics-frontend" preview (Vite 5173 → mock 8000). The backend
+  itself (routes, the root StaticFiles mount) is tested via the Docker pytest harness above.
 - **CodeRabbit free CLI caps at 150 files** → review per unit with `--type uncommitted`, not the whole branch.
 - **lucide-react missing icons** hit during the migration: no `SlashCircle` (use `Ban`), no `ArrowClockwise`
   (use `RotateCw`).
