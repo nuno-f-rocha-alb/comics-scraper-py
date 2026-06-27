@@ -98,8 +98,12 @@ function EditForm({
   const [verifyResults, setVerifyResults] = useState<{ title: string; url: string }[] | null>(null)
   const verify = useMutation({
     mutationFn: () => verifySearch(watch("series_name"), watch("getcomics_search_name")),
+    onMutate: () => setVerifyResults(null),  // drop stale links while re-checking
     onSuccess: (r) => setVerifyResults(r.comics),
-    onError: (e: Error) => toast.error(`Verify error: ${e.message}`),
+    onError: (e: Error) => {
+      setVerifyResults(null)
+      toast.error(`Verify error: ${e.message}`)
+    },
   })
 
   const save = useMutation({
