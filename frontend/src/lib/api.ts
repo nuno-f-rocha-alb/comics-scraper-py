@@ -232,7 +232,6 @@ export interface ActiveJob extends DownloadJob {
 }
 export const getDownloads = () => http<{ jobs: DownloadJob[] }>("/api/downloads")
 export const getActiveDownloads = () => http<{ jobs: ActiveJob[] }>("/api/downloads/active")
-export const getDownloadsBadge = () => http<{ count: number }>("/api/downloads/badge")
 export const deleteDownload = (id: number) =>
   http<{ ok: boolean }>(`/api/downloads/${id}`, { method: "DELETE" })
 export const cancelDownload = (id: number) =>

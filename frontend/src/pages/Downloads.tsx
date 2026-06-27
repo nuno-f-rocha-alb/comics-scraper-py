@@ -68,7 +68,6 @@ export function Downloads() {
   const refetch = () => {
     qc.invalidateQueries({ queryKey: ["downloads"] })
     qc.invalidateQueries({ queryKey: ["downloads-active"] })
-    qc.invalidateQueries({ queryKey: ["downloads-badge"] })
   }
   const act = (fn: () => Promise<unknown>, ok: string) =>
     fn().then(() => { toast.success(ok); refetch() })
