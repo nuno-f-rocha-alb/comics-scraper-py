@@ -178,8 +178,8 @@ def check_and_download_comics(
                 download_url = get_comic_download_url(comic_url)
                 if download_url:
                     save_path = download_file(download_url, staging_dir(), annual_series_name, formatted_issue_number, entry[2])
-                    _record_job(series_id, issue_number, title, "done", filename=save_path)
-                    downloaded.append((annual_entry, save_path, issue_number, annuals_dir))
+                    downloaded.append((annual_entry, save_path, issue_number, annuals_dir, title))
+                    # Job recorded "done" only after install succeeds (batch step below).
                     # ponytail: in-run re-scan dropped — staged files aren't in the
                     # dest until batch install; duplicate issue URLs per run aren't expected.
                 else:
@@ -200,8 +200,8 @@ def check_and_download_comics(
                 download_url = get_comic_download_url(comic_url)
                 if download_url:
                     save_path = download_file(download_url, staging_dir(), entry[1], formatted_issue_number, entry[2])
-                    _record_job(series_id, issue_number, title, "done", filename=save_path)
-                    downloaded.append((entry, save_path, issue_number, local_dir))
+                    downloaded.append((entry, save_path, issue_number, local_dir, title))
+                    # Job recorded "done" only after install succeeds (batch step below).
                     # ponytail: in-run re-scan dropped — staged files aren't in the
                     # dest until batch install; duplicate issue URLs per run aren't expected.
                 else:
@@ -211,9 +211,24 @@ def check_and_download_comics(
             else:
                 logging.info(f"{title} already exists locally in an alternate format.")
 
-    # Process metadata + install into the library for all downloaded issues in batch
+    # Process metadata + install into the library for all downloaded issues in batch.
+    # Job status is recorded here (not at download time) so a tag/install failure
+    # is reflected as "failed" and "done" carries the final installed path.
     if downloaded:
         logging.info(f"Processing metadata for {len(downloaded)} downloaded issue(s)...")
-        for proc_entry, save_path, issue_number, dest_dir in downloaded:
-            staged = process_downloaded_comic(proc_entry, save_path, issue_number)
-            install_to_library(staged, dest_dir)
+        for proc_entry, save_path, issue_number, dest_dir, title in downloaded:
+            staged = save_path
+            try:
+                staged = process_downloaded_comic(proc_entry, save_path, issue_number)
+                installed = install_to_library(staged, dest_dir)
+                _record_job(series_id, issue_number, title, "done", filename=installed)
+            except Exception as exc:
+                logging.error("Failed to process/install %s #%s: %s", title, issue_number, exc)
+                _record_job(series_id, issue_number, title, "failed", error=str(exc))
+                for path in {save_path, staged}:
+                    if not path:
+                        continue
+                    try:
+                        os.remove(path)
+                    except OSError:
+                        pass

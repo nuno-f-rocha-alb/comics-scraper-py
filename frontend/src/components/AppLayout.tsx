@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { Link, Outlet, useLocation } from "react-router-dom"
+import { toast } from "sonner"
 import {
   CalendarDays,
   Clock,
@@ -15,7 +16,7 @@ import {
 } from "lucide-react"
 import { useQuery } from "@tanstack/react-query"
 import { applyTheme, getInitialTheme, type Theme } from "@/lib/theme"
-import { getDownloadsBadge } from "@/lib/api"
+import { getDownloads } from "@/lib/api"
 import { cn } from "@/lib/utils"
 
 const NAV = [
@@ -39,11 +40,34 @@ export function AppLayout() {
   const [theme, setTheme] = useState<Theme>(getInitialTheme)
   const [open, setOpen] = useState(false)
   const { pathname } = useLocation()
-  const badge = useQuery({
-    queryKey: ["downloads-badge"],
-    queryFn: getDownloadsBadge,
+  // Single 5s poll drives both the sidebar badge and the completion toast.
+  // ponytail: /api/downloads is capped at 200 rows — cheap enough for a
+  // single-user app. Add a dedicated lightweight feed if history ever grows.
+  const downloads = useQuery({
+    queryKey: ["downloads"],
+    queryFn: getDownloads,
     refetchInterval: 5000,
   })
+  const jobs = downloads.data?.jobs
+  const activeCount = jobs?.filter((j) => j.status === "queued" || j.status === "downloading").length ?? 0
+
+  // Toast when a download newly completes. Seed with whatever is already "done"
+  // on first load so opening the app doesn't replay history.
+  const seenDone = useRef<Set<number> | null>(null)
+  useEffect(() => {
+    if (!jobs) return
+    const done = jobs.filter((j) => j.status === "done")
+    if (seenDone.current === null) {
+      seenDone.current = new Set(done.map((j) => j.id))
+      return
+    }
+    for (const j of done) {
+      if (!seenDone.current.has(j.id)) {
+        seenDone.current.add(j.id)
+        toast.success(`Downloaded ${j.series_name ?? "issue"} #${j.issue_number}`)
+      }
+    }
+  }, [jobs])
 
   useEffect(() => applyTheme(theme), [theme])
 
@@ -105,9 +129,9 @@ export function AppLayout() {
                 >
                   <Icon className="size-4 shrink-0" />
                   {label}
-                  {to === "/downloads" && !!badge.data?.count && (
+                  {to === "/downloads" && activeCount > 0 && (
                     <span className="ml-auto rounded-full bg-primary px-1.5 text-[0.65rem] font-semibold text-primary-foreground">
-                      {badge.data.count}
+                      {activeCount}
                     </span>
                   )}
                 </Link>

@@ -23,6 +23,25 @@ _thread: threading.Thread | None = None
 _cancel_requested: set[int] = set()
 _cancel_lock = threading.Lock()
 
+# Transient-failure retry bookkeeping. In-memory (lost on restart, but start()
+# re-enqueues in-flight jobs anyway). job_id -> attempts made so far.
+_attempts: dict[int, int] = {}
+MAX_RETRIES = int(os.getenv("DOWNLOAD_MAX_RETRIES", 3))
+RETRY_BACKOFF_S = int(os.getenv("DOWNLOAD_RETRY_BACKOFF_S", 30))
+
+
+def _is_transient(exc: Exception) -> bool:
+    """Network blips / rate limits are worth retrying; a missing download link
+    or bad metadata is not."""
+    import requests
+    if isinstance(exc, (requests.exceptions.Timeout, requests.exceptions.ConnectionError)):
+        return True
+    if isinstance(exc, requests.exceptions.HTTPError):
+        resp = getattr(exc, "response", None)
+        return resp is not None and resp.status_code in (429, 500, 502, 503, 504)
+    return False
+
+
 # Live download progress, in-memory only. Cleared when a job finishes (any
 # status) or when the process restarts (in which case the job is also
 # re-enqueued from scratch by start()).
@@ -149,6 +168,8 @@ def _download_issue(series, issue_number: str, is_cancelled=None, on_progress=No
     except Exception:
         # Don't leave a staged artifact behind on a tag/convert/install failure.
         for path in {save_path, staged}:
+            if not path:
+                continue
             try:
                 os.remove(path)
             except OSError:
@@ -200,6 +221,10 @@ def _search_for_issue(search_name, normalized_series, issue_number, target_num, 
         f"{BASE_SEARCH_URL.format(1)}{encoded1}",
         headers=HEADERS, timeout=15,
     )
+    # Surface rate-limit / server blips as HTTPError so the worker's retry path
+    # sees them; a clean 200 with no match still falls through to "not found".
+    if resp.status_code in (429, 500, 502, 503, 504):
+        resp.raise_for_status()
     comic_url, comic_title = None, None
     if resp.status_code == 200 and "No Results Found" not in resp.text:
         comic_url, comic_title = _find_in_page(resp.text)
@@ -213,6 +238,8 @@ def _search_for_issue(search_name, normalized_series, issue_number, target_num, 
             f"{BASE_SEARCH_URL.format(1)}{search_name.replace(' ', '+')}",
             headers=HEADERS, timeout=15,
         )
+        if resp2.status_code in (429, 500, 502, 503, 504):
+            resp2.raise_for_status()
         if resp2.status_code == 200 and "No Results Found" not in resp2.text:
             comic_url, comic_title = _find_in_page(resp2.text)
 
@@ -244,6 +271,7 @@ def _process(job_id: int) -> None:
         job.status = "downloading"
         db.commit()
 
+        retrying = False
         try:
             s = db.get(Series, job.series_id)
             if not s:
@@ -256,17 +284,38 @@ def _process(job_id: int) -> None:
             )
             job.status = "done"
             job.filename = filename
+            job.error = None  # drop any "retrying…" text from an earlier attempt
         except DownloadCancelled as exc:
             logging.info("Download job %d cancelled: %s", job_id, exc)
             job.status = "cancelled"
+            job.error = None
         except Exception as exc:
-            logging.error("Download job %d failed: %s", job_id, exc)
-            job.status = "failed"
-            job.error = str(exc)
+            attempts = _attempts.get(job_id, 0) + 1
+            if _is_transient(exc) and attempts < MAX_RETRIES:
+                retrying = True
+                _attempts[job_id] = attempts
+                delay = RETRY_BACKOFF_S * attempts  # linear backoff
+                logging.warning(
+                    "Download job %d transient failure (attempt %d/%d): %s — retrying in %ds",
+                    job_id, attempts, MAX_RETRIES, exc, delay,
+                )
+                job.status = "queued"
+                job.error = f"retrying ({attempts}/{MAX_RETRIES}): {exc}"
+                t = threading.Timer(delay, _q.put, args=(job_id,))
+                t.daemon = True
+                t.start()
+            else:
+                logging.error("Download job %d failed: %s", job_id, exc)
+                job.status = "failed"
+                job.error = str(exc)
         finally:
-            _clear_cancel(job_id)
             _clear_progress(job_id)
-            job.finished_at = datetime.now(timezone.utc)
+            # Keep cancel state across a scheduled retry so a cancel requested
+            # during the failed attempt still aborts the next one.
+            if not retrying:
+                _clear_cancel(job_id)
+                _attempts.pop(job_id, None)
+                job.finished_at = datetime.now(timezone.utc)
             db.commit()
 
 
