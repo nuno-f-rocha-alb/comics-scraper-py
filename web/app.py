@@ -154,10 +154,12 @@ def _refresh_series_meta_from_metron(s: Series, db: Session) -> bool:
     if not s.metron_series_id:
         return False
     from config import METRON_BASE_URL
-    from metadata.metron_client import get as metron_get
+    from metadata.metron_client import RateLimitedError, get as metron_get
     try:
         r = metron_get(f"{METRON_BASE_URL}/series/{s.metron_series_id}/")
         data = r.json()
+    except RateLimitedError:
+        raise  # let the caller stop the run instead of retrying blindly
     except Exception as exc:
         log.warning("Could not refresh series meta for %s: %s", s.series_name, exc)
         return False
@@ -184,6 +186,79 @@ def _refresh_series_meta_from_metron(s: Series, db: Session) -> bool:
     if not s.comicvine_volume_id and data.get("cv_id"):
         s.comicvine_volume_id = data["cv_id"]
     return True
+
+
+_METRON_META_TTL = timedelta(days=7)
+
+
+def _refresh_one_series(s: Series, db: Session, *, force: bool = False) -> bool:
+    """Unified per-series Metron refresh — the single path used by the background
+    refresh job and the scheduler pre-run.
+
+    Steps: cv_id→metron_id discovery (for txt-migrated rows), then a TTL-gated
+    detail refresh (cover/total_issues/status/year_end), first-issue cover
+    fallback, issue-list cache, and pause recompute. `force=True` (manual button)
+    always refreshes; `force=False` (scheduler) skips series refreshed within the
+    TTL to cut redundant Metron calls. Returns True if it refreshed/discovered.
+
+    RateLimitedError propagates so the caller can stop the whole run.
+    """
+    from config import METRON_BASE_URL
+    from metadata.metron_client import RateLimitedError, get as metron_get
+
+    # Phase 1: discover metron_series_id from comicvine_volume_id.
+    if not s.metron_series_id and s.comicvine_volume_id:
+        try:
+            r = metron_get(f"{METRON_BASE_URL}/series/", cv_id=s.comicvine_volume_id)
+            results = r.json().get("results", [])
+            if results:
+                s.metron_series_id = results[0]["id"]
+        except RateLimitedError:
+            raise
+        except Exception as exc:
+            log.warning("Metron id lookup failed for %s: %s", s.series_name, exc)
+
+    if not s.metron_series_id:
+        return False
+
+    # The detail call (cover/status/total_issues — slow-changing) is TTL-gated:
+    # skipped when recently refreshed and not forced. The issue-list refresh
+    # below ALWAYS runs so the scraper sees newly-released issues, and pause
+    # state is ALWAYS recomputed from current coverage.
+    meta_fresh = (
+        not force
+        and s.metron_refreshed_at is not None
+        and datetime.utcnow() - s.metron_refreshed_at < _METRON_META_TTL
+    )
+    refreshed = False
+    if not meta_fresh and _refresh_series_meta_from_metron(s, db):
+        # Cover fallback: first-issue cover when the series has no image of its own.
+        if not s.cover_image_url:
+            try:
+                r2 = metron_get(
+                    f"{METRON_BASE_URL}/issue/",
+                    series_id=s.metron_series_id, ordering="number", limit=1,
+                )
+                issues = r2.json().get("results", [])
+                if issues:
+                    s.cover_image_url = (_extract_img(issues[0].get("image")) or "") or None
+            except RateLimitedError:
+                raise
+            except Exception:
+                pass
+        s.metron_refreshed_at = datetime.utcnow()
+        refreshed = True
+
+    for mid in filter(None, (s.metron_series_id, s.metron_annual_series_id)):
+        try:
+            _get_or_fetch_metron_issues(mid, db, force=True, skip_titles=True)
+        except RateLimitedError:
+            raise
+        except Exception as exc:
+            log.warning("Could not cache Metron issues for %s: %s", s.series_name, exc)
+
+    _recompute_pause_state(s, db)
+    return refreshed
 
 
 def _find_issue_file(s: Series, issue_num: str, annual: bool | None = None) -> str | None:
@@ -580,160 +655,19 @@ def api_metron_results(name: str = "", db: Session = Depends(get_db)):
         raise HTTPException(status_code=502, detail=f"Metron search error: {exc}")
 
 
-@app.post("/api/metron/cache/refresh")
-def metron_cache_refresh(db: Session = Depends(get_db)):
-    """Paginate all Metron series and upsert metadata into local cache."""
-    from config import METRON_BASE_URL
-    from metadata.metron_client import get as metron_get
-
-    url = f"{METRON_BASE_URL}/series/"
-    added = updated = 0
-
-    while url:
-        try:
-            r = metron_get(url)
-            data = r.json()
-        except Exception as exc:
-            msg = f"Cache refresh stopped ({added} new, {updated} updated): {exc}"
-            return {"msg": msg}
-
-        now = datetime.now(timezone.utc)
-        for s in data.get("results", []):
-            mid = s.get("id")
-            if not mid:
-                continue
-            pub = s.get("publisher") or {}
-            st = s.get("series_type") or {}
-            existing = db.get(MetronCache, mid)
-            if existing is None:
-                db.add(MetronCache(
-                    metron_id=mid,
-                    name=s.get("name") or s.get("series"),
-                    publisher_name=pub.get("name") if isinstance(pub, dict) else None,
-                    year_began=s.get("year_began"),
-                    issue_count=s.get("issue_count"),
-                    series_type=st.get("name") if isinstance(st, dict) else None,
-                    cv_id=None,
-                    image_url=None,  # populated lazily on first cover request
-                    cached_at=now,
-                ))
-                added += 1
-            else:
-                if s.get("name") or s.get("series"):
-                    existing.name = s.get("name") or s.get("series")
-                pub_name = pub.get("name") if isinstance(pub, dict) else None
-                if pub_name:
-                    existing.publisher_name = pub_name
-                if s.get("year_began"):
-                    existing.year_began = s["year_began"]
-                if s.get("issue_count"):
-                    existing.issue_count = s["issue_count"]
-                st_name = st.get("name") if isinstance(st, dict) else None
-                if st_name:
-                    existing.series_type = st_name
-                existing.cached_at = now
-                updated += 1
-
-        db.commit()
-        url = data.get("next")
-
-    # Sync covers + issue lists for tracked series
-    tracked = db.query(Series).filter(Series.metron_series_id.isnot(None)).all()
-    covers_synced = issues_synced = 0
-    for s in tracked:
-        mid = s.metron_series_id
-        # Populate cover for MetronCache entry if not yet tried
-        cached = db.get(MetronCache, mid)
-        if cached is None or cached.image_url is None:
-            _ensure_cover_cached(mid, db)
-            covers_synced += 1
-        # Pre-populate issue list if no cache exists
-        existing = db.query(MetronIssueCache).filter(MetronIssueCache.series_id == mid).first()
-        if not existing:
-            try:
-                _get_or_fetch_metron_issues(mid, db)
-                issues_synced += 1
-            except Exception:
-                pass
-        # Annual series
-        if s.metron_annual_series_id:
-            ann_existing = (
-                db.query(MetronIssueCache)
-                .filter(MetronIssueCache.series_id == s.metron_annual_series_id)
-                .first()
-            )
-            if not ann_existing:
-                try:
-                    _get_or_fetch_metron_issues(s.metron_annual_series_id, db)
-                    issues_synced += 1
-                except Exception:
-                    pass
-
-    parts = [f"Metron cache refreshed: {added} new, {updated} updated"]
-    if covers_synced:
-        parts.append(f"{covers_synced} covers synced")
-    if issues_synced:
-        parts.append(f"{issues_synced} issue lists cached")
-    msg = ". ".join(parts) + "."
-    return {"msg": msg}
+@app.get("/api/metron/refresh/status")
+def api_metron_refresh_status():
+    return _metron_refresh_status_json()
 
 
-
-
-# ── Cover + ID sync ────────────────────────────────────────────────────────────
-
-@app.post("/api/sync-covers")
-def sync_covers(db: Session = Depends(get_db)):
-    from config import METRON_BASE_URL
-    from metadata.metron_client import get as metron_get
-
-    rows = db.query(Series).all()
-    found_ids = 0
-    updated_covers = 0
-
-    for s in rows:
-        # Phase 1: auto-find metron_series_id from comicvine_volume_id
-        if not s.metron_series_id and s.comicvine_volume_id:
-            try:
-                r = metron_get(f"{METRON_BASE_URL}/series/", cv_id=s.comicvine_volume_id)
-                results = r.json().get("results", [])
-                if results:
-                    s.metron_series_id = results[0]["id"]
-                    found_ids += 1
-            except Exception:
-                pass
-
-        # Phase 2: refresh cover + issue count + ended status from Metron detail.
-        # Runs whenever the series has a metron_series_id — the button is a
-        # manual "Refresh from Metron" so it must always re-sync.
-        if s.metron_series_id:
-            if _refresh_series_meta_from_metron(s, db):
-                # Fallback: use first issue cover if series still has no image
-                if not s.cover_image_url:
-                    try:
-                        r2 = metron_get(
-                            f"{METRON_BASE_URL}/issue/",
-                            series_id=s.metron_series_id,
-                            ordering="number",
-                            limit=1,
-                        )
-                        issues = r2.json().get("results", [])
-                        if issues:
-                            img2 = issues[0].get("image") or ""
-                            s.cover_image_url = img2 if isinstance(img2, str) and img2 else None
-                    except Exception:
-                        pass
-                _recompute_pause_state(s, db)
-                updated_covers += 1
-
-    db.commit()
-    parts = []
-    if found_ids:
-        parts.append(f"{found_ids} Metron IDs found via CV ID")
-    if updated_covers:
-        parts.append(f"{updated_covers} covers synced")
-    msg = ", ".join(parts) if parts else "Nothing to update."
-    return {"msg": msg}
+@app.post("/api/metron/refresh")
+def api_metron_refresh():
+    """Kick the background Metron refresh (tracked series: meta, covers, issue
+    lists, pause state). Returns immediately — the SPA polls the status route.
+    Replaces the old synchronous /api/sync-covers + /api/metron/cache/refresh,
+    which blocked the request thread (a Metron rate-limit slept it for 60s+)."""
+    started = _metron_refresh.run_refresh(force=True)
+    return {"started": started, **_metron_refresh_status_json()}
 
 
 # ── Verify search ──────────────────────────────────────────────────────────────
@@ -1695,8 +1629,19 @@ def api_rename_apply(series_id: int, payload: dict, db: Session = Depends(get_db
 # ── Library scan ───────────────────────────────────────────────────────────────
 
 from web import scanner as _scanner
+from web import metron_refresh as _metron_refresh
 
 
+def _metron_refresh_status_json() -> dict:
+    st = _metron_refresh.get_status()
+    last = st.get("last_refresh_at")
+    return {
+        "running": st.get("running", False),
+        "last_refresh_at": last.isoformat() if last else None,
+        "last_error": st.get("last_error"),
+        "progress": st.get("progress") or {"current": "", "done": 0, "total": 0},
+        "last_result": st.get("last_result") or {},
+    }
 
 
 

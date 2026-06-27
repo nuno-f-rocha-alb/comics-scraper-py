@@ -36,6 +36,8 @@ def migrate_columns():
             conn.execute(text("ALTER TABLE series ADD COLUMN year_end INTEGER"))
         if "status" not in cols:
             conn.execute(text("ALTER TABLE series ADD COLUMN status TEXT"))
+        if "metron_refreshed_at" not in cols:
+            conn.execute(text("ALTER TABLE series ADD COLUMN metron_refreshed_at TIMESTAMP"))
 
         # Recreate monitored_issues to add issue_type + update unique constraint
         tables = inspector.get_table_names()

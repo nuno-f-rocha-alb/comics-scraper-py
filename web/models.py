@@ -36,6 +36,10 @@ class Series(Base):
     cover_image_url: Mapped[str | None] = mapped_column(String, nullable=True)
     total_issues: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
+    # Last successful Metron detail refresh — drives the TTL that skips redundant
+    # per-series detail calls on scheduled refreshes (manual refresh always runs).
+    metron_refreshed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
     # Metron series classification — used to detect ended/concluded series so
     # the scraper can stop searching for new issues. `status` is the primary
     # signal (e.g. "Ongoing", "Cancelled", "Completed"); series_type/year_end
