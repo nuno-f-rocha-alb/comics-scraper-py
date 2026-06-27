@@ -90,10 +90,7 @@ def _clear_cancel(job_id: int) -> None:
         _cancel_requested.discard(job_id)
 
 
-def _download_issue(series, issue_number: str, is_cancelled=None, on_progress=None) -> str:
-    import requests
-    from bs4 import BeautifulSoup
-    from config import BASE_SEARCH_URL, HEADERS
+def _download_issue(series, issue_number: str, is_cancelled=None, on_progress=None, post_url=None) -> str:
     from downloader.download_file import download_file, DownloadCancelled
     from downloader.get_comic_download_url import get_comic_download_url
     from downloader.process_downloaded_comic import process_downloaded_comic
@@ -107,6 +104,58 @@ def _download_issue(series, issue_number: str, is_cancelled=None, on_progress=No
         target_num = str(int(float(issue_number)))
     except (ValueError, TypeError):
         target_num = issue_number
+
+    # RSS / Releases supply the exact getcomics post URL — skip the search and
+    # resolve the download link straight from it (lighter, no search mismatch).
+    if post_url:
+        comic_url, comic_title = post_url, post_url
+    else:
+        comic_url, comic_title = _search_for_issue(
+            search_name, normalized_series, issue_number, target_num, is_cancelled,
+        )
+
+    if is_cancelled and is_cancelled():
+        raise DownloadCancelled("cancelled before resolving download URL")
+
+    logging.info("Download worker: found '%s', fetching download link…", comic_title)
+
+    download_url = get_comic_download_url(comic_url)
+    if not download_url:
+        raise Exception(f"No download link found on page: {comic_url}")
+
+    # Preserve decimal issues (#1.5 → 001.5) the same way the scraper does in
+    # check_and_download_comics.py, so 1.5 doesn't collapse onto issue 1's file.
+    issue_str = str(issue_number)
+    if "." in issue_str:
+        int_part, frac = issue_str.split(".", 1)
+        try:
+            formatted = f"{int(int_part):03}.{frac}"
+        except (ValueError, TypeError):
+            formatted = issue_str
+    elif issue_str.isdigit():
+        formatted = f"{int(issue_str):03}"
+    else:
+        formatted = issue_str
+
+    local_dir = create_series_directory(entry)
+    save_path = download_file(
+        download_url, local_dir, entry[1], formatted, entry[2],
+        is_cancelled=is_cancelled,
+        on_progress=on_progress,
+    )
+    process_downloaded_comic(entry, save_path, issue_number)
+
+    return os.path.basename(save_path)
+
+
+def _search_for_issue(search_name, normalized_series, issue_number, target_num, is_cancelled):
+    """Resolve a getcomics post URL by searching (the back-catalog/manual path).
+    Returns (comic_url, comic_title); raises if not found."""
+    import requests
+    from bs4 import BeautifulSoup
+    from config import BASE_SEARCH_URL, HEADERS
+    from downloader.download_file import DownloadCancelled
+    from util import normalize_title
 
     def _find_in_page(html: str) -> tuple[str | None, str | None]:
         soup = BeautifulSoup(html, "html.parser")
@@ -159,32 +208,9 @@ def _download_issue(series, issue_number: str, is_cancelled=None, on_progress=No
 
     if not comic_url:
         raise Exception(
-            f"Issue #{issue_number} of '{entry[1]}' not found on getcomics.org"
+            f"Issue #{issue_number} of '{search_name}' not found on getcomics.org"
         )
-
-    if is_cancelled and is_cancelled():
-        raise DownloadCancelled("cancelled before resolving download URL")
-
-    logging.info("Download worker: found '%s', fetching download link…", comic_title)
-
-    download_url = get_comic_download_url(comic_url)
-    if not download_url:
-        raise Exception(f"No download link found on page: {comic_url}")
-
-    try:
-        formatted = f"{int(float(issue_number)):03}"
-    except (ValueError, TypeError):
-        formatted = issue_number
-
-    local_dir = create_series_directory(entry)
-    save_path = download_file(
-        download_url, local_dir, entry[1], formatted, entry[2],
-        is_cancelled=is_cancelled,
-        on_progress=on_progress,
-    )
-    process_downloaded_comic(entry, save_path, issue_number)
-
-    return os.path.basename(save_path)
+    return comic_url, comic_title
 
 
 def _process(job_id: int) -> None:
@@ -216,6 +242,7 @@ def _process(job_id: int) -> None:
                 s, job.issue_number,
                 is_cancelled=lambda: _is_cancelled(job_id),
                 on_progress=lambda b, t: _set_progress(job_id, b, t),
+                post_url=job.url,
             )
             job.status = "done"
             job.filename = filename

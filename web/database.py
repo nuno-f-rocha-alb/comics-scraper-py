@@ -65,6 +65,8 @@ def migrate_columns():
             dj_cols = [c["name"] for c in inspector.get_columns("download_jobs")]
             if "source" not in dj_cols:
                 conn.execute(text("ALTER TABLE download_jobs ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'"))
+            if "url" not in dj_cols:
+                conn.execute(text("ALTER TABLE download_jobs ADD COLUMN url TEXT"))
 
         conn.commit()
 

@@ -19,9 +19,9 @@ export function Releases() {
   const matches = data?.matches ?? []
   const feedSize = data?.feed_size ?? 0
 
-  const dl = (seriesId: number, num: string) => {
+  const dl = (seriesId: number, num: string, url: string) => {
     const key = `${seriesId}:${num}`
-    downloadIssue(seriesId, num)
+    downloadIssue(seriesId, num, url)
       .then(() => { setQueued((p) => new Set(p).add(key)); toast.success("Queued for download") })
       .catch((e) => toast.error(`Failed: ${e instanceof Error ? e.message : String(e)}`))
   }
@@ -32,7 +32,8 @@ export function Releases() {
         <div>
           <h1 className="text-xl font-bold">Releases</h1>
           <p className="text-sm text-muted-foreground">
-            Latest posts on getcomics.org that match your monitored series.
+            Latest posts on getcomics.org that match your monitored series. New matches are
+            downloaded automatically — use Download here to grab one immediately.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -95,7 +96,7 @@ export function Releases() {
                   ) : isQueued ? (
                     <Badge variant="secondary">Queued</Badge>
                   ) : (
-                    <Button size="sm" onClick={() => dl(m.series_id, m.issue_number)}>
+                    <Button size="sm" onClick={() => dl(m.series_id, m.issue_number, m.url)}>
                       <Download /> Download
                     </Button>
                   )}

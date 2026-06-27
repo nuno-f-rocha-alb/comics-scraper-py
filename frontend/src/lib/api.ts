@@ -185,8 +185,11 @@ export const monitorAll = (id: number) =>
   http<{ ok: boolean }>(`/api/series/${id}/monitor-all`, { method: "POST" })
 export const unmonitorAll = (id: number) =>
   http<{ ok: boolean }>(`/api/series/${id}/monitor-all`, { method: "DELETE" })
-export const downloadIssue = (id: number, number: string | number) =>
-  http<{ status: string }>(`/api/series/${id}/issues/${iss(number)}/download`, { method: "POST" })
+export const downloadIssue = (id: number, number: string | number, url?: string) =>
+  http<{ status: string }>(
+    `/api/series/${id}/issues/${iss(number)}/download${url ? `?url=${encodeURIComponent(url)}` : ""}`,
+    { method: "POST" },
+  )
 export const deleteIssue = (id: number, number: string | number, type: IssueType) =>
   http<{ ok: boolean }>(`/api/series/${id}/issues/${iss(number)}?type=${type}`, { method: "DELETE" })
 export const bulkDeleteIssues = (id: number, items: { number: string | number; type: IssueType }[]) =>

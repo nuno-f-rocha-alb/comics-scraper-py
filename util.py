@@ -1,7 +1,24 @@
 import zipfile
 import rarfile
 import re
+from urllib.parse import urlparse
 from config import *
+
+
+def is_getcomics_url(u: str | None) -> bool:
+    """True only for https://getcomics.org (or *.getcomics.org) URLs.
+
+    Guards the worker's direct-download path against SSRF: a stored job url is
+    later fetched server-side, so a client-supplied url must be allowlisted.
+    """
+    if not u:
+        return False
+    try:
+        p = urlparse(u)
+    except (ValueError, TypeError):
+        return False
+    host = (p.hostname or "").lower()
+    return p.scheme == "https" and (host == "getcomics.org" or host.endswith(".getcomics.org"))
 
 
 def convert_cbr_to_cbz(cbr_path):

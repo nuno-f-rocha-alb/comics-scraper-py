@@ -1406,7 +1406,11 @@ def api_unmonitor_all(series_id: int, db: Session = Depends(get_db)):
 
 
 @app.post("/api/series/{series_id}/issues/{number}/download")
-def api_issue_download(series_id: int, number: str, db: Session = Depends(get_db)):
+def api_issue_download(
+    series_id: int, number: str,
+    url: str | None = Query(default=None),
+    db: Session = Depends(get_db),
+):
     s = db.query(Series).filter(Series.id == series_id).first()
     if not s:
         raise HTTPException(status_code=404)
@@ -1419,12 +1423,20 @@ def api_issue_download(series_id: int, number: str, db: Session = Depends(get_db
         )
         .first()
     )
+    # url (from the Releases feed) lets the worker download directly without
+    # re-searching getcomics. The worker fetches it server-side, so allowlist
+    # getcomics.org to prevent SSRF; reject anything else outright.
+    if url:
+        from util import is_getcomics_url
+        if not is_getcomics_url(url):
+            raise HTTPException(status_code=400, detail="url must be a getcomics.org link")
     if not existing:
         search_name = s.getcomics_search_name or s.series_name
         job = DownloadJob(
             series_id=series_id,
             issue_number=number,
             search_term=f"{search_name} #{number} ({s.year})",
+            url=url or None,
             status="queued",
         )
         db.add(job)
