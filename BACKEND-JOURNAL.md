@@ -59,3 +59,31 @@ fix (`a13a8f5`) and the overview/scan tests validate it directly.
   `frontend/.vite/` is loose — gitignore + untrack.
 - Two CodeRabbit "critical" duplicate-export claims on `frontend/src/lib/api.ts` were **false positives**
   (no duplicates; `npm run build` clean) — same stale-knowledge pattern seen in the migration.
+
+## §2 — Bug fixes (test-first; staged on `fix/backend-bugs`, NOT deployed)
+
+Done overnight, each gated by the Docker suite (17 green):
+- **`download_file.py` socket leak** — the streaming `requests.get` was never closed on early exit
+  (cancel/IOError). Wrapped in `with ... as response:` so the connection is released on every path.
+  Tests (`test_download_file.py`, network mocked): response closed on success AND on mid-download cancel;
+  `.part` scratch cleaned.
+- **`util.py convert_cbr_to_cbz` partial-conversion data loss** — it deleted the source CBR whenever
+  `written > 0`, so a partial conversion (some entries failed) lost the failed pages. Now deletes only on
+  `written > 0 and failed == 0`. Tests (`test_convert_cbr.py`, rarfile mocked): clean → source removed,
+  partial → source kept.
+- **Repo hygiene** — untracked `.idea/` (already in `.gitignore`; files predated the rule); gitignored
+  `frontend/.vite/`. Left `.vscode/launch.json` (possibly an intentional shared config — but it has a
+  machine-specific path, see backlog).
+
+**Deliberately NOT done unattended (need design or a wider, caller-touching change — for an awake session):**
+- **`_find_issue_file` decimal collision** — the whole matching layer (`_extract_nums`, monitor-all,
+  status) normalizes issue numbers with lossy `str(int(float(n)))` (`1.5 → 1`). Fixing one function would
+  make decimal handling *more* inconsistent. Decision needed: does the app support decimal issues in
+  matching at all? If yes, it's a coordinated change across the matching layer + a migration of stored keys.
+- **`util.py` return contract** — still returns `cbz_path` even on partial/failed conversion, so callers
+  treat a partial CBZ as success. Fixing means returning `None`/raising + updating every caller.
+- CodeRabbit backlog (pre-existing, unverified — triage when awake): Metron lookup persists *failed*
+  fetches into cache (`web/app.py` ~436); delete handlers don't refresh cached state (~1489);
+  `_cleanup_old_logs` active-log path comparison (~1836); `retag_comics._issue_number` decimal normalize;
+  `search_comics` year comparison; a few SPA hydration-guard nits (MetadataSheet/SeriesNotes/SeriesAdd);
+  `.vscode/launch.json` machine path; stale `decisions.md`/`specs/series-list.md`.

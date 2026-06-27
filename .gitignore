@@ -197,3 +197,6 @@ frontend/mock_api.py
 # match frontend/src/lib (TS source). Re-include the SPA's lib directory.
 !frontend/src/lib/
 !frontend/src/lib/**
+
+# Vite dev cache
+frontend/.vite/
