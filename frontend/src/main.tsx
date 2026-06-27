@@ -16,6 +16,7 @@ import { Calendar } from "@/pages/Calendar"
 import { Logs } from "@/pages/Logs"
 import { ComingSoon } from "@/pages/ComingSoon"
 import { Toaster } from "@/components/ui/sonner"
+import { ConfirmProvider } from "@/components/confirm"
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { refetchOnWindowFocus: false } },
@@ -24,6 +25,7 @@ const queryClient = new QueryClient({
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
+      <ConfirmProvider>
       <BrowserRouter basename={import.meta.env.BASE_URL.replace(/\/$/, "") || "/"}>
         <Routes>
           <Route element={<AppLayout />}>
@@ -42,6 +44,7 @@ createRoot(document.getElementById("root")!).render(
           </Route>
         </Routes>
       </BrowserRouter>
+      </ConfirmProvider>
       <Toaster richColors position="bottom-right" />
     </QueryClientProvider>
   </StrictMode>,

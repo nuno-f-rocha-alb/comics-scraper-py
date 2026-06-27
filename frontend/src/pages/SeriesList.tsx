@@ -42,6 +42,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { useConfirm } from "@/components/confirm"
 import { cn } from "@/lib/utils"
 
 const STATUS_BAR: Record<SeriesStatus, string> = {
@@ -71,6 +72,7 @@ const pctOf = (s: SeriesCard) =>
 
 export function SeriesList() {
   const qc = useQueryClient()
+  const confirm = useConfirm()
   const { data, isLoading, isError } = useQuery({
     queryKey: ["series-overview"],
     queryFn: getSeriesOverview,
@@ -187,9 +189,9 @@ export function SeriesList() {
       const r = await postJSON("/api/series/bulk/refresh", { ids })
       toast.success(`Refreshed ${r.updated} series`)
     })
-  const bulkDelete = () => {
+  const bulkDelete = async () => {
     if (!ids.length) return
-    if (!confirm(`Delete ${ids.length} series from the DB? Local files are not touched.`)) return
+    if (!(await confirm({ title: `Delete ${ids.length} series from the DB?`, description: "Local files are not touched.", confirmText: "Delete", destructive: true }))) return
     runBulk(async () => {
       const r = await postJSON("/api/series/bulk/delete", { ids })
       toast.success(`Deleted ${r.deleted} series`)
