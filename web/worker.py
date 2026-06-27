@@ -94,7 +94,7 @@ def _download_issue(series, issue_number: str, is_cancelled=None, on_progress=No
     from downloader.download_file import download_file, DownloadCancelled
     from downloader.get_comic_download_url import get_comic_download_url
     from downloader.process_downloaded_comic import process_downloaded_comic
-    from util import create_series_directory, normalize_title
+    from util import create_series_directory, install_to_library, normalize_title, staging_dir
 
     entry = series.to_scraper_tuple()
     search_name = entry[6] or entry[1]
@@ -137,15 +137,25 @@ def _download_issue(series, issue_number: str, is_cancelled=None, on_progress=No
     else:
         formatted = issue_str
 
-    local_dir = create_series_directory(entry)
     save_path = download_file(
-        download_url, local_dir, entry[1], formatted, entry[2],
+        download_url, staging_dir(), entry[1], formatted, entry[2],
         is_cancelled=is_cancelled,
         on_progress=on_progress,
     )
-    process_downloaded_comic(entry, save_path, issue_number)
+    staged = save_path
+    try:
+        staged = process_downloaded_comic(entry, save_path, issue_number)
+        installed = install_to_library(staged, create_series_directory(entry))
+    except Exception:
+        # Don't leave a staged artifact behind on a tag/convert/install failure.
+        for path in {save_path, staged}:
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+        raise
 
-    return os.path.basename(save_path)
+    return os.path.basename(installed)
 
 
 def _search_for_issue(search_name, normalized_series, issue_number, target_num, is_cancelled):
@@ -271,6 +281,19 @@ def _run() -> None:
 
 def start() -> None:
     global _thread
+
+    # Remove staging orphans from a crash between download and install — downloads
+    # always re-fetch, so abandoned staging files are safe to delete. Done before
+    # the worker thread starts so it can't race a fresh download into staging.
+    from util import staging_dir
+    staging = staging_dir()
+    for f in os.listdir(staging):
+        try:
+            os.remove(os.path.join(staging, f))
+            logging.info("Removed staging orphan: %s", f)
+        except OSError as exc:
+            logging.warning("Could not remove staging orphan %s: %s", f, exc)
+
     _thread = threading.Thread(target=_run, daemon=True, name="download-worker")
     _thread.start()
 

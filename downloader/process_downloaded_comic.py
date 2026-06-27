@@ -17,5 +17,6 @@ def process_downloaded_comic(entry, file_path, issue_number):
     else:
         logging.warning(f"Metadata for {entry[1]} #{issue_number} not found.")
 
-    # Change ownership
-    os.chown(file_path, PUID, PGID)
+    # Ownership is set on the final file after install_to_library moves it into
+    # the library — the caller owns that step.
+    return file_path

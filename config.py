@@ -48,6 +48,10 @@ HEADERS = {
     "Accept-Language": "en-US,en;q=0.5",
 }
 COMICS_BASE_DIR = "comics"
+# In-progress downloads land here (convert + tag + final-name) before the
+# finished .cbz is moved into the library, so Komga never indexes a partial or
+# untagged file. Leading dot → Komga's scanner ignores the folder.
+STAGING_SUBDIR = ".downloads"
 API_KEY = os.getenv("COMICVINE_API_KEY", "")
 BASE_URL = "https://comicvine.gamespot.com/api"
 
