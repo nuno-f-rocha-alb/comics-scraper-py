@@ -23,52 +23,54 @@ def download_file(url, save_dir, series_name, issue_number, volume_year,
     file_name = os.path.basename(parsed_url.path)
     file_extension = os.path.splitext(file_name)[1]  # Get the file extension
 
-    response = requests.get(url, headers=HEADERS, stream=True, timeout=(10, 120))
-    response.raise_for_status()
+    # `with` guarantees the streaming connection/socket is released on every
+    # exit path (success, IOError, or mid-download cancel).
+    with requests.get(url, headers=HEADERS, stream=True, timeout=(10, 120)) as response:
+        response.raise_for_status()
 
-    total_size = int(response.headers.get('Content-Length', 0))
+        total_size = int(response.headers.get('Content-Length', 0))
 
-    safe_name = sanitize_filename(series_name)
-    save_path = os.path.join(save_dir, f"{safe_name} #{issue_number} ({volume_year}){file_extension}")
-    part_path = save_path + ".part"
+        safe_name = sanitize_filename(series_name)
+        save_path = os.path.join(save_dir, f"{safe_name} #{issue_number} ({volume_year}){file_extension}")
+        part_path = save_path + ".part"
 
-    bytes_written = 0
-    chunks_seen = 0
-    download_start_time = time.time()
-    try:
-        with open(part_path, 'wb') as f:
-            # Create a tqdm progress bar
-            with tqdm(total=total_size, unit='B', unit_scale=True, desc=f"Downloading {series_name} #{issue_number} ({volume_year}){file_extension}") as pbar:
-                for chunk in response.iter_content(chunk_size=8192):
-                    f.write(chunk)
-                    bytes_written += len(chunk)
-                    chunks_seen += 1
-                    pbar.update(len(chunk))
-                    if chunks_seen % 64 == 0:
-                        if is_cancelled and is_cancelled():
-                            raise DownloadCancelled("cancelled mid-download")
-                        if on_progress:
-                            try:
-                                on_progress(bytes_written, total_size)
-                            except Exception:
-                                pass  # progress reporting must never break a download
-        download_end_time = time.time()
-
-        if total_size and bytes_written != total_size:
-            raise IOError(
-                f"Incomplete download: got {bytes_written} bytes, expected {total_size}"
-            )
-
-        if os.path.exists(save_path):
-            os.remove(save_path)
-        os.rename(part_path, save_path)
-    except BaseException:
+        bytes_written = 0
+        chunks_seen = 0
+        download_start_time = time.time()
         try:
-            if os.path.exists(part_path):
-                os.remove(part_path)
-        except OSError:
-            pass
-        raise
+            with open(part_path, 'wb') as f:
+                # Create a tqdm progress bar
+                with tqdm(total=total_size, unit='B', unit_scale=True, desc=f"Downloading {series_name} #{issue_number} ({volume_year}){file_extension}") as pbar:
+                    for chunk in response.iter_content(chunk_size=8192):
+                        f.write(chunk)
+                        bytes_written += len(chunk)
+                        chunks_seen += 1
+                        pbar.update(len(chunk))
+                        if chunks_seen % 64 == 0:
+                            if is_cancelled and is_cancelled():
+                                raise DownloadCancelled("cancelled mid-download")
+                            if on_progress:
+                                try:
+                                    on_progress(bytes_written, total_size)
+                                except Exception:
+                                    pass  # progress reporting must never break a download
+            download_end_time = time.time()
+
+            if total_size and bytes_written != total_size:
+                raise IOError(
+                    f"Incomplete download: got {bytes_written} bytes, expected {total_size}"
+                )
+
+            if os.path.exists(save_path):
+                os.remove(save_path)
+            os.rename(part_path, save_path)
+        except BaseException:
+            try:
+                if os.path.exists(part_path):
+                    os.remove(part_path)
+            except OSError:
+                pass
+            raise
 
     download_elapsed_time = download_end_time - download_start_time
 

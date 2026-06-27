@@ -7,6 +7,7 @@ from config import *
 def convert_cbr_to_cbz(cbr_path):
     cbz_path = os.path.splitext(cbr_path)[0] + ".cbz"
     written = 0
+    failed = 0
     with rarfile.RarFile(cbr_path) as rar:
         with zipfile.ZipFile(cbz_path, "w") as cbz:
             for file_info in rar.infolist():
@@ -16,13 +17,20 @@ def convert_cbr_to_cbz(cbr_path):
                         written += 1
                 except Exception as e:
                     logging.error(f"Error converting {cbr_path} to {cbz_path}: {e}")
+                    failed += 1
                     continue
-    # An empty zip is still ~22 bytes, so count writes rather than file size
-    if written > 0 and os.path.exists(cbz_path):
+    # Only delete the source CBR on a fully clean conversion. A partial one
+    # (any entry failed) keeps the original — deleting it would lose the pages
+    # that didn't make it into the CBZ. (Empty zips are ~22 bytes, so we count
+    # writes, not file size.)
+    if written > 0 and failed == 0 and os.path.exists(cbz_path):
         os.remove(cbr_path)
         logging.info(f"Converted {cbr_path} to {cbz_path}.")
     else:
-        logging.error(f"CBZ output missing or empty after conversion of {cbr_path}, keeping original.")
+        logging.error(
+            f"Conversion of {cbr_path} incomplete ({written} ok, {failed} failed) "
+            f"or output missing — keeping original."
+        )
     return cbz_path
 
 
