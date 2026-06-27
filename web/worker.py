@@ -113,7 +113,7 @@ def _download_issue(series, issue_number: str, is_cancelled=None, on_progress=No
     from downloader.download_file import download_file, DownloadCancelled
     from downloader.get_comic_download_url import get_comic_download_url
     from downloader.process_downloaded_comic import process_downloaded_comic
-    from util import create_series_directory, install_to_library, normalize_title, staging_dir
+    from util import create_series_directory, install_to_library, is_getcomics_url, normalize_title, staging_dir
 
     entry = series.to_scraper_tuple()
     search_name = entry[6] or entry[1]
@@ -127,6 +127,10 @@ def _download_issue(series, issue_number: str, is_cancelled=None, on_progress=No
     # RSS / Releases supply the exact getcomics post URL — skip the search and
     # resolve the download link straight from it (lighter, no search mismatch).
     if post_url:
+        # Defense-in-depth: job.url is validated at every creation boundary, but
+        # this is the sink that fetches it server-side, so re-check here too.
+        if not is_getcomics_url(post_url):
+            raise Exception(f"Refusing to fetch non-getcomics URL: {post_url}")
         comic_url, comic_title = post_url, post_url
     else:
         comic_url, comic_title = _search_for_issue(
