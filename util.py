@@ -1,8 +1,33 @@
+import shutil
 import zipfile
 import rarfile
 import re
 from urllib.parse import urlparse
 from config import *
+
+
+def staging_dir():
+    """Hidden staging folder inside the comics volume (same filesystem as the
+    library, so the final landing is an atomic rename). Created on demand."""
+    path = os.path.join(COMICS_BASE_DIR, STAGING_SUBDIR)
+    os.makedirs(path, exist_ok=True)
+    os.chown(path, PUID, PGID)
+    return path
+
+
+def install_to_library(staged_path, dest_dir):
+    """Move a finished comic from staging into the library without ever exposing
+    a partial file to Komga. Returns the final path."""
+    os.makedirs(dest_dir, exist_ok=True)
+    os.chown(dest_dir, PUID, PGID)
+    final = os.path.join(dest_dir, os.path.basename(staged_path))
+    # shutil.move handles staging/dest on different mergerfs branches; the hidden
+    # dot-temp + os.replace guarantees the visible final name appears atomically.
+    tmp = os.path.join(dest_dir, "." + os.path.basename(staged_path) + ".tmp")
+    shutil.move(staged_path, tmp)
+    os.replace(tmp, final)  # overwrites an existing file on re-download
+    os.chown(final, PUID, PGID)
+    return final
 
 
 def is_getcomics_url(u: str | None) -> bool:

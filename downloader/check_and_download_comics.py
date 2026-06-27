@@ -7,7 +7,10 @@ from config import *
 from downloader.download_file import download_file
 from downloader.get_comic_download_url import get_comic_download_url
 from downloader.process_downloaded_comic import process_downloaded_comic
-from util import normalize_title, extract_year_from_comic_title, sanitize_filename
+from util import (
+    normalize_title, extract_year_from_comic_title, sanitize_filename,
+    install_to_library, staging_dir,
+)
 
 
 def _record_job(series_id, issue_number, search_term, status, filename=None, error=None):
@@ -80,7 +83,8 @@ def check_and_download_comics(
     annuals_dir = os.path.join(local_dir, "Annuals")
     existing_annual_files = None
 
-    # Collect all (entry, save_path, issue_number) to process metadata in batch
+    # Collect all (entry, staged_path, issue_number, dest_dir) to process
+    # metadata and install into the library in batch at the end.
     downloaded: list[tuple] = []
 
     for title, comic_url in available_comics:
@@ -173,10 +177,11 @@ def check_and_download_comics(
                 logging.info(f"New annual found: {title}. Downloading...")
                 download_url = get_comic_download_url(comic_url)
                 if download_url:
-                    save_path = download_file(download_url, annuals_dir, annual_series_name, formatted_issue_number, entry[2])
+                    save_path = download_file(download_url, staging_dir(), annual_series_name, formatted_issue_number, entry[2])
                     _record_job(series_id, issue_number, title, "done", filename=save_path)
-                    downloaded.append((annual_entry, save_path, issue_number))
-                    existing_annual_files = {f for f in os.listdir(annuals_dir)}
+                    downloaded.append((annual_entry, save_path, issue_number, annuals_dir))
+                    # ponytail: in-run re-scan dropped — staged files aren't in the
+                    # dest until batch install; duplicate issue URLs per run aren't expected.
                 else:
                     logging.warning(f"Download link not found for {title}.")
                     _record_job(series_id, issue_number, title, "failed", error="Download link not found")
@@ -194,10 +199,11 @@ def check_and_download_comics(
                 logging.info(f"New comic found: {title}. Downloading...")
                 download_url = get_comic_download_url(comic_url)
                 if download_url:
-                    save_path = download_file(download_url, local_dir, entry[1], formatted_issue_number, entry[2])
+                    save_path = download_file(download_url, staging_dir(), entry[1], formatted_issue_number, entry[2])
                     _record_job(series_id, issue_number, title, "done", filename=save_path)
-                    downloaded.append((entry, save_path, issue_number))
-                    existing_files = {f for f in os.listdir(local_dir)}
+                    downloaded.append((entry, save_path, issue_number, local_dir))
+                    # ponytail: in-run re-scan dropped — staged files aren't in the
+                    # dest until batch install; duplicate issue URLs per run aren't expected.
                 else:
                     logging.warning(f"Download link not found for {title}.")
                     _record_job(series_id, issue_number, title, "failed", error="Download link not found")
@@ -205,8 +211,9 @@ def check_and_download_comics(
             else:
                 logging.info(f"{title} already exists locally in an alternate format.")
 
-    # Process metadata for all downloaded issues in batch
+    # Process metadata + install into the library for all downloaded issues in batch
     if downloaded:
         logging.info(f"Processing metadata for {len(downloaded)} downloaded issue(s)...")
-        for proc_entry, save_path, issue_number in downloaded:
-            process_downloaded_comic(proc_entry, save_path, issue_number)
+        for proc_entry, save_path, issue_number, dest_dir in downloaded:
+            staged = process_downloaded_comic(proc_entry, save_path, issue_number)
+            install_to_library(staged, dest_dir)

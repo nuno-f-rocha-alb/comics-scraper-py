@@ -127,8 +127,10 @@ def test_worker_post_url_skips_search(monkeypatch):
 
     monkeypatch.setattr(worker, "_search_for_issue", _no_search)
     monkeypatch.setattr("downloader.get_comic_download_url.get_comic_download_url", lambda u: "http://dl/x")
-    monkeypatch.setattr("downloader.download_file.download_file", lambda *a, **k: "/tmp/Spawn #350.cbz")
-    monkeypatch.setattr("downloader.process_downloaded_comic.process_downloaded_comic", lambda *a, **k: None)
+    monkeypatch.setattr("downloader.download_file.download_file", lambda *a, **k: "/tmp/staging/Spawn #350.cbz")
+    monkeypatch.setattr("downloader.process_downloaded_comic.process_downloaded_comic", lambda *a, **k: "/tmp/staging/Spawn #350.cbz")
+    monkeypatch.setattr("util.staging_dir", lambda: "/tmp/staging")
+    monkeypatch.setattr("util.install_to_library", lambda staged, dest: "/tmp/Spawn #350.cbz")
     monkeypatch.setattr("util.create_series_directory", lambda e: "/tmp")
 
     class _S:
