@@ -87,3 +87,27 @@ Done overnight, each gated by the Docker suite (17 green):
   `_cleanup_old_logs` active-log path comparison (~1836); `retag_comics._issue_number` decimal normalize;
   `search_comics` year comparison; a few SPA hydration-guard nits (MetadataSheet/SeriesNotes/SeriesAdd);
   `.vscode/launch.json` machine path; stale `decisions.md`/`specs/series-list.md`.
+
+## §3 — Metron: don't cache failed fetches (test-first; `fix/metron-cache`)
+
+**Bug (CodeRabbit ~436):** `_ensure_cover_cached` wrapped the Metron fetch in `try/except: pass`, then
+*unconditionally* wrote `image_url=""` — the "tried, genuinely nothing" sentinel. So a transient failure
+(network blip / rate limit / timeout) permanently poisoned the cache: the short-circuit at the top
+(`cached.image_url is not None`) meant the cover would never be retried.
+
+**Fix:** track `ok` (primary `/series/{id}/` fetch succeeded). On failure → `return None` without writing,
+so it stays retryable. The cover-fallback issue call is now best-effort (its own try/except) so a fallback
+failure doesn't discard the series fields we already got. `image_url=""` is still cached on a *successful*
+fetch that genuinely has no image (so we don't refetch every page load). Tests (`test_metron_cache.py`,
+Metron mocked): failed fetch → not cached / retryable; success → cached; success-but-no-image → `""` sentinel.
+
+**Audited the sibling fetchers — both clean, no fix needed:**
+- `_refresh_series_meta_from_metron` returns `False` on exception, persists nothing.
+- `_get_or_fetch_metron_issues` / `_fetch_metron_issues` — failures *raise* (never return `[]`), so the
+  stale-issue removal only fires on a genuinely empty series, not a transient failure.
+
+20 tests green in the Docker harness.
+
+**Still open for the heavier Metron work (recommend a fresh session — structural, not bugs):** the
+"refresh all" path paginates every series synchronously (slow, blocks the request); fixed 2s inter-call
+delays; cold-cache first-load latency. Candidates: background/async refresh, batching, smarter TTL.

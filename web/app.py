@@ -433,6 +433,8 @@ def _ensure_cover_cached(metron_id: int, db: Session) -> str | None:
 
     img = ""
     fields: dict = {}
+    ok = False
+    cover_lookup_complete = False
     try:
         r = metron_get(f"{METRON_BASE_URL}/series/{metron_id}/")
         data = r.json()
@@ -447,18 +449,30 @@ def _ensure_cover_cached(metron_id: int, db: Session) -> str | None:
             "cv_id": data.get("cv_id"),
             "series_type": st.get("name") if isinstance(st, dict) else None,
         }
+        ok = True
+        cover_lookup_complete = bool(img)  # primary gave an image → lookup done
         if not img:
-            r2 = metron_get(
-                f"{METRON_BASE_URL}/issue/",
-                series_id=metron_id,
-                ordering="number",
-                limit=1,
-            )
-            issues = r2.json().get("results", [])
-            if issues:
-                img = _extract_img(issues[0].get("image")) or ""
+            try:
+                r2 = metron_get(
+                    f"{METRON_BASE_URL}/issue/",
+                    series_id=metron_id,
+                    ordering="number",
+                    limit=1,
+                )
+                issues = r2.json().get("results", [])
+                cover_lookup_complete = True  # fallback completed (image or confirmed none)
+                if issues:
+                    img = _extract_img(issues[0].get("image")) or ""
+            except Exception:
+                pass  # fallback failed → cover_lookup_complete stays False (retry later)
     except Exception:
         pass
+
+    if not ok or not cover_lookup_complete:
+        # Primary fetch failed, or the cover lookup didn't complete — do NOT persist
+        # image_url="" (the "tried, nothing" sentinel), or the cover would never be
+        # retried. Leave it retryable.
+        return None
 
     now = datetime.now(timezone.utc)
     if cached is None:
