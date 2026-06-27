@@ -24,6 +24,12 @@ SQLite DB at `/app/cache/comics.db`, managed by SQLAlchemy (`web/models.py`).
 - Search cache (`/app/cache/search_cache.json`) stores `seen_urls` (ALL URLs encountered, not just filtered ones) so broad searches like "The Darkness" (97 pages) stop early on re-runs
 - 2s delay + 30s backoff on 429 in `get_comic_download_url.py` to avoid rate limiting
 - Metron is primary metadata source; ComicVine is automatic fallback — both return the same normalised dict
+- **Download staging** (§6): comics are downloaded + cbr→cbz + tagged + final-named in a hidden
+  `comics/.downloads` folder (`STAGING_SUBDIR`, `util.staging_dir()`), then moved into the library via
+  dot-temp + `os.replace` (`util.install_to_library()`) so Komga never indexes a partial/untagged file.
+  `process_downloaded_comic()` returns the final path; chown happens after the move. Worker wipes staging
+  orphans on start. **Ops:** Komga ignores dotfolders, but verify `comics/.downloads` is excluded from the
+  Komga library; if not, exclude it in Komga's library settings.
 
 ## Web Interface ✅ complete
 Stack: FastAPI + SQLAlchemy + SQLite + Bootstrap 5 + HTMX + APScheduler
