@@ -84,18 +84,23 @@ _ENDED_STATUSES = {"cancelled", "completed", "ended"}
 _ENDED_SERIES_TYPES = {"Cancelled Series", "One-Shot", "Single Issue"}
 
 
-def _is_series_ended(s: Series) -> bool:
-    """True if Metron's metadata says this series will get no further issues.
+def _has_upcoming_issues(s: Series, db: Session) -> bool:
+    """True if the issue cache has any issue dated in the future (not yet
+    released) for this series or its annual. Such a series can't be 'finished'
+    yet — there's still an issue to come."""
+    mids = [m for m in (s.metron_series_id, s.metron_annual_series_id) if m]
+    if not mids:
+        return False
+    today_iso = date.today().isoformat()
+    for c in db.query(MetronIssueCache).filter(MetronIssueCache.series_id.in_(mids)).all():
+        d = c.store_date or c.cover_date
+        if d and str(d)[:10] > today_iso:
+            return True
+    return False
 
-    Primary signal is `status` (e.g. Ongoing / Hiatus / Cancelled / Completed
-    / Ended), which Metron exposes alongside series_type. status is more
-    reliable because series_type can be mislabelled (DC's Absolute Batman is
-    tagged "Single Issue" on Metron despite being an ongoing run with 20+
-    issues — status correctly says "Ongoing").
 
-    Falls back to year_end + intrinsically single-edition series_type when
-    status hasn't been refreshed onto the row yet.
-    """
+def _series_metadata_ended(s: Series) -> bool:
+    """Metron-metadata signal that a series will get no further issues."""
     if s.status:
         return s.status.strip().lower() in _ENDED_STATUSES
     if s.year_end:
@@ -103,6 +108,23 @@ def _is_series_ended(s: Series) -> bool:
     if s.series_type in _ENDED_SERIES_TYPES:
         return True
     return False
+
+
+def _is_series_ended(s: Series, db: Session | None = None) -> bool:
+    """True if Metron's metadata says this series will get no further issues
+    AND it has no upcoming (future-dated) issues still pending.
+
+    Primary metadata signal is `status` (Ongoing / Hiatus / Cancelled /
+    Completed / Ended); falls back to year_end + intrinsically single-edition
+    series_type. But even a metadata-"ended" series isn't really finished while a
+    future-dated issue is still unreleased (e.g. a 12-issue maxi with #12 dated
+    next month) — so when `db` is given and such an issue exists, it's not ended.
+    """
+    if not _series_metadata_ended(s):
+        return False
+    if db is not None and _has_upcoming_issues(s, db):
+        return False
+    return True
 
 
 def _monitored_numbers(s: Series, db: Session, issue_type: str = "regular") -> set[str] | None:
@@ -146,7 +168,7 @@ def _recompute_pause_state(s: Series, db: Session) -> None:
     Ended in Metron but monitored issues still missing → resume.
     Not ended → leave as-is (user controls the toggle).
     """
-    if not _is_series_ended(s):
+    if not _is_series_ended(s, db):
         return
     target_enabled = not _has_all_monitored_files(s, db)
     if s.enabled != target_enabled:
@@ -993,6 +1015,17 @@ def _series_overview(db: Session):
 
     today_iso = date.today().isoformat()
 
+    # Series with a future-dated cached issue aren't "finished" yet (reuses the
+    # already-loaded cache — no extra queries).
+    upcoming_ids: set[int] = set()
+    for mid, sid_kinds in metron_to_series.items():
+        if any((c.store_date or c.cover_date) and str(c.store_date or c.cover_date)[:10] > today_iso
+               for c in cached_issues_by_metron.get(mid, [])):
+            upcoming_ids.update(sid for sid, _ in sid_kinds)
+
+    def ended_of(s: Series) -> bool:
+        return _series_metadata_ended(s) and s.id not in upcoming_ids
+
     def has_missing_past(s: Series) -> bool:
         """True if any issue with store_date <= today (or unknown) is missing
         from the local folder. Future-only gaps don't count."""
@@ -1014,16 +1047,20 @@ def _series_overview(db: Session):
                     num = c.number
                 if num in local_set:
                     continue
-                # Missing — was it supposed to be out by now?
-                # No store_date → assume past (Metron often backfills dates).
-                if not c.store_date or c.store_date <= today_iso:
+                # Missing — was it supposed to be out by now? Use the same
+                # date rule as upcoming_ids (store_date or cover_date); no date
+                # at all → assume past (Metron often backfills dates).
+                issue_date = c.store_date or c.cover_date
+                if not issue_date or str(issue_date)[:10] <= today_iso:
                     return True
         return False
 
     # Per-series classification used for card border colour + footer stats.
     statuses: dict[int, str] = {}
+    ended_map: dict[int, bool] = {}
     for s in rows:
-        ended = _is_series_ended(s)
+        ended = ended_of(s)
+        ended_map[s.id] = ended
         missing_past = has_missing_past(s)
         if s.id in active_dl_ids:
             statuses[s.id] = "downloading"
@@ -1037,15 +1074,15 @@ def _series_overview(db: Session):
 
     stats = {
         "series": len(rows),
-        "ended": sum(1 for s in rows if _is_series_ended(s)),
-        "continuing": sum(1 for s in rows if not _is_series_ended(s)),
+        "ended": sum(1 for v in ended_map.values() if v),
+        "continuing": sum(1 for v in ended_map.values() if not v),
         "monitored": sum(1 for s in rows if s.enabled),
         "unmonitored": sum(1 for s in rows if not s.enabled),
         "issues_total": sum((s.total_issues or 0) for s in rows),
         "files_total": sum(local_counts.values()),
     }
 
-    return rows, local_counts, statuses, stats
+    return rows, local_counts, statuses, stats, ended_map
 
 
 
@@ -1053,7 +1090,7 @@ def _series_overview(db: Session):
 @app.get("/api/series/overview")
 def api_series_overview(db: Session = Depends(get_db)):
     """JSON backing the React series grid — same data as the Jinja page."""
-    rows, local_counts, statuses, stats = _series_overview(db)
+    rows, local_counts, statuses, stats, ended_map = _series_overview(db)
     return {
         "series": [
             {
@@ -1069,7 +1106,7 @@ def api_series_overview(db: Session = Depends(get_db)):
                 "getcomics_search_name": s.getcomics_search_name,
                 "local_count": local_counts[s.id],
                 "status": statuses[s.id],
-                "ended": _is_series_ended(s),
+                "ended": ended_map[s.id],
             }
             for s in rows
         ],
@@ -1077,7 +1114,7 @@ def api_series_overview(db: Session = Depends(get_db)):
     }
 
 
-def _series_dict(s: Series) -> dict:
+def _series_dict(s: Series, db: Session | None = None) -> dict:
     """Editable/displayable fields for a single series (JSON API)."""
     return {
         "id": s.id,
@@ -1093,7 +1130,7 @@ def _series_dict(s: Series) -> dict:
         "cover_image_url": s.cover_image_url,
         "total_issues": s.total_issues,
         "enabled": s.enabled,
-        "ended": _is_series_ended(s),
+        "ended": _is_series_ended(s, db),
     }
 
 
@@ -1149,7 +1186,7 @@ def api_create_series(payload: SeriesCreate, db: Session = Depends(get_db)):
             detail="A series with this publisher, name and year already exists.",
         )
     db.refresh(s)
-    return _series_dict(s)
+    return _series_dict(s, db)
 
 
 @app.get("/api/series/{series_id}")
@@ -1157,7 +1194,7 @@ def api_get_series(series_id: int, db: Session = Depends(get_db)):
     s = db.query(Series).filter(Series.id == series_id).first()
     if not s:
         raise HTTPException(status_code=404)
-    return _series_dict(s)
+    return _series_dict(s, db)
 
 
 @app.put("/api/series/{series_id}")
@@ -1183,7 +1220,7 @@ def api_update_series(series_id: int, payload: SeriesUpdate, db: Session = Depen
             detail="A series with this publisher, name and year already exists.",
         )
     db.refresh(s)
-    return _series_dict(s)
+    return _series_dict(s, db)
 
 
 
@@ -1318,7 +1355,7 @@ def api_series_detail(series_id: int, db: Session = Depends(get_db)):
     s = db.query(Series).filter(Series.id == series_id).first()
     if not s:
         raise HTTPException(status_code=404)
-    return {**_series_dict(s), "local_count": _count_local_issues(s)}
+    return {**_series_dict(s, db), "local_count": _count_local_issues(s)}
 
 
 @app.get("/api/series/{series_id}/issues")

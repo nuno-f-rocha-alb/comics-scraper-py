@@ -2,7 +2,7 @@
 Metron, even when the cache is stale. Metron is only hit on a cold (empty) cache
 and by the nightly refresh (which skips ended series)."""
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 
@@ -65,7 +65,38 @@ def test_empty_cache_fetches_once(client, db, monkeypatch):
     assert db.query(MetronIssueCache).filter(MetronIssueCache.series_id == 101).count() == 1
 
 
-def test_nightly_refresh_skips_ended_series(db, monkeypatch):
+def test_ended_series_with_upcoming_issue_is_not_finished(client, db):
+    # A metadata-"Completed" 12-issue series whose #12 is still future-dated is
+    # NOT finished — it shows as continuing, not ended.
+    s = Series(publisher="DC", series_name="Absolute MM", year=2025,
+               metron_series_id=303, status="Completed", total_issues=12)
+    db.add(s); db.commit()
+    future = (date.today() + timedelta(days=30)).isoformat()
+    db.add(MetronIssueCache(metron_id=9912, series_id=303, number="12",
+                            store_date=future, cover_date=future))
+    db.commit()
+
+    card = next(c for c in client.get("/api/series/overview").json()["series"] if c["id"] == s.id)
+    assert card["ended"] is False
+    assert card["status"] == "continuing-complete"
+
+
+def test_ended_series_no_upcoming_is_finished(client, db):
+    s = Series(publisher="DC", series_name="Watchmen", year=1986,
+               metron_series_id=404, status="Completed", total_issues=12)
+    db.add(s); db.commit()
+    past = "1987-10-01"
+    db.add(MetronIssueCache(metron_id=4412, series_id=404, number="12",
+                            store_date=past, cover_date=past))
+    db.commit()
+
+    card = next(c for c in client.get("/api/series/overview").json()["series"] if c["id"] == s.id)
+    assert card["ended"] is True
+
+
+def test_nightly_refresh_covers_all_series(db, monkeypatch):
+    # All series are refreshed, incl. finished ones — so a surprise new issue on
+    # a completed series is still discovered.
     active = Series(publisher="Image", series_name="Saga", year=2012, metron_series_id=101, status="Ongoing")
     ended = Series(publisher="DC", series_name="Watchmen", year=1986, metron_series_id=202, status="Completed")
     db.add_all([active, ended]); db.commit()
@@ -73,10 +104,11 @@ def test_nightly_refresh_skips_ended_series(db, monkeypatch):
     seen: list[int] = []
     monkeypatch.setattr(appmod, "_refresh_one_series", lambda s, db, **k: seen.append(s.metron_series_id) or True)
 
-    assert refresh.run_refresh(force=True, skip_titles=False, only_active=True) is True
-    # wait for the background thread to finish
-    for _ in range(100):
+    assert refresh.run_refresh(force=True, skip_titles=False) is True
+    for _ in range(100):  # wait for the background thread to finish
         if not refresh.get_status()["running"]:
             break
         time.sleep(0.05)
-    assert seen == [101]  # only the non-ended series was refreshed
+    else:
+        pytest.fail("refresh worker did not finish within 5s")
+    assert sorted(seen) == [101, 202]  # finished series re-checked too

@@ -114,10 +114,11 @@ def _wrapped_rss_poll() -> None:
 
 
 def _wrapped_metron_nightly() -> None:
-    """Nightly Metron cache refresh: non-ended series, full titles, blocking."""
+    """Nightly Metron cache refresh: all series, full titles, blocking — finished
+    series are re-checked too, so a surprise new issue is still discovered."""
     try:
         from web.metron_refresh import run_refresh
-        run_refresh(force=True, skip_titles=False, only_active=True)
+        run_refresh(force=True, skip_titles=False)
     except Exception as exc:
         log.warning("Nightly Metron refresh failed to start: %s", exc)
 

@@ -27,12 +27,13 @@ def get_status() -> dict:
         }
 
 
-def run_refresh(force: bool = True, skip_titles: bool = True, only_active: bool = False) -> bool:
+def run_refresh(force: bool = True, skip_titles: bool = True) -> bool:
     """Spawn a background Metron refresh thread. Returns False if already running.
 
     skip_titles=False also resolves per-issue titles (heavier; for the nightly
-    job which blocks through burst limits). only_active=True refreshes only
-    non-ended series (ended ones get no new issues)."""
+    job which blocks through burst limits). All series are refreshed — including
+    finished ones, so a surprise new issue (future-dated) on a completed series
+    is still discovered (which then flips it back to not-ended)."""
     global _running
     with _lock:
         if _running:
@@ -53,15 +54,13 @@ def run_refresh(force: bool = True, skip_titles: bool = True, only_active: bool 
             # the finally that clears _running (else refresh stays blocked).
             # web.app imports this module, so a top-level import would be
             # circular (same trick scanner.py uses for retag_comics).
-            from web.app import _refresh_one_series, _is_series_ended
+            from web.app import _refresh_one_series
             from web.database import SessionLocal
             from web.models import Series
             from metadata.metron_client import RateLimitedError
 
             db = SessionLocal()
             rows = db.query(Series).order_by(Series.publisher, Series.series_name).all()
-            if only_active:
-                rows = [s for s in rows if not _is_series_ended(s)]
             total = len(rows)
             with _lock:
                 _progress = {"current": "", "done": 0, "total": total}
