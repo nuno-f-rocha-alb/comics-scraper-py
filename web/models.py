@@ -188,6 +188,25 @@ class ReadingListItem(Base):
     series_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 
+class SuggestedReadingList(Base):
+    """Cached result of the Phase-B coverage scan: public Metron lists the user
+    already owns a good chunk of. Recomputed by the manual background scan."""
+    __tablename__ = "suggested_reading_lists"
+
+    metron_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    image_url: Mapped[str | None] = mapped_column(String, nullable=True)
+    list_type: Mapped[str | None] = mapped_column(String, nullable=True)
+    attribution_source: Mapped[str | None] = mapped_column(String, nullable=True)
+    average_rating: Mapped[float | None] = mapped_column(Float, nullable=True)
+    owned: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    total: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    coverage: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    computed_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
+    )
+
+
 class MetronIssueCache(Base):
     """Local mirror of Metron issue list per series — avoids repeated API calls."""
     __tablename__ = "metron_issue_cache"

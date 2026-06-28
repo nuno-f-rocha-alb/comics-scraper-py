@@ -6,7 +6,8 @@ import xml.etree.ElementTree as ET
 import web.app as appmod
 from metadata.metron_reading_lists import parse_item
 from web.cbl import build_cbl
-from web.models import MonitoredIssue, ReadingList, ReadingListItem, Series
+from web.models import MonitoredIssue, ReadingList, ReadingListItem, Series, SuggestedReadingList
+from web.reading_list_suggest import compute_coverage
 
 
 # ── parsing ──────────────────────────────────────────────────────────────────
@@ -146,6 +147,40 @@ class _FakeSession:
     def post(self, url, json=None, timeout=None):
         self.posted = json
         return _FakeResp({"id": "rl-new"})
+
+
+# ── Phase B: suggestions ─────────────────────────────────────────────────────
+def test_compute_coverage():
+    owned = {789: {"1", "2"}, 790: {"5"}}  # series 789 has #1,#2 owned; 790 has #5
+    items = [
+        {"metron_series_id": 789, "number": "1"},   # owned
+        {"metron_series_id": 789, "number": "3"},    # tracked but not owned
+        {"metron_series_id": 790, "number": "5"},    # owned
+        {"metron_series_id": 999, "number": "1"},    # untracked series
+    ]
+    assert compute_coverage(items, owned) == (2, 4)
+
+
+def test_suggestions_filter_and_exclude_added(client, db):
+    # threshold defaults to 50%
+    db.add(SuggestedReadingList(metron_id=1, name="High", owned=6, total=10, coverage=0.6))
+    db.add(SuggestedReadingList(metron_id=2, name="Low", owned=3, total=10, coverage=0.3))   # below 50%
+    db.add(SuggestedReadingList(metron_id=3, name="Added", owned=8, total=10, coverage=0.8))
+    db.add(ReadingList(metron_id=3, name="Added", num_items=10))  # already added → excluded
+    db.commit()
+
+    r = client.get("/api/reading-list-suggestions")
+    names = [s["name"] for s in r.json()["suggestions"]]
+    assert names == ["High"]  # Low filtered by threshold, Added excluded
+    assert r.json()["suggestions"][0]["coverage"] == 60
+
+
+def test_suggestion_threshold_setting(client, db):
+    db.add(SuggestedReadingList(metron_id=2, name="Low", owned=3, total=10, coverage=0.3))
+    db.commit()
+    client.put("/api/reading-list-suggestions/settings", json={"threshold": 25})
+    names = [s["name"] for s in client.get("/api/reading-list-suggestions").json()["suggestions"]]
+    assert names == ["Low"]  # now above the lowered 25% threshold
 
 
 def test_komga_push_builds_ordered_payload(monkeypatch):
