@@ -6,8 +6,8 @@ issues the list needs**, see per-issue ownership status, and get the list into K
 file** and/or a **direct Komga API push**. Reading-list data is **backed up locally** (DB) so Metron is hit
 only on add / explicit re-sync — never on every page view.
 
-Phase B (NOT in this spec): auto-suggest lists with ≥X% already-owned issues (needs a bounded background
-scan; deferred).
+Phase B (now specced below): auto-suggest lists with ≥X% already-owned issues via a bounded, manual
+background scan.
 
 ## Decisions (from interview)
 - **Phasing:** core now (search + add + monitor + CBL + Komga push). Auto-suggest deferred to Phase B.
@@ -117,6 +117,49 @@ These rows are the local backup: CBL, status, and monitoring all read from here.
 - ComicVine reading lists (Metron-first, matching the rest of the app).
 - Un-monitoring on list delete; reading-order-aware downloading (order doesn't affect what's fetched).
 - Editing list contents (Metron API is read-only; we mirror, not author).
+
+## Phase B — auto-suggest lists ≥X% owned (decided: bounded publisher scan, manual trigger)
+
+### Constraint
+Metron has no reverse "lists containing issue X" lookup and lists can only be filtered by
+name/publisher/type/source/rating (not by series). So discovery = scan candidate lists and compute coverage
+against owned issues. Bounded + manual to control Metron load.
+
+### PB-R1 — settings (AppSetting)
+- `rl_suggest_threshold` (default "50") — min coverage % to surface a suggestion.
+- `rl_suggest_min_rating` (default "3") — only scan lists rated ≥ this.
+- `rl_suggest_max` (default "200") — hard cap on candidate lists scanned per run.
+
+### PB-R2 — cache table `SuggestedReadingList`
+`metron_id` (PK), `name`, `image_url`, `list_type`, `attribution_source`, `average_rating`,
+`owned`, `total`, `coverage` (float 0–1), `computed_at`. Store any candidate with `coverage ≥ 0.25` (floor),
+so lowering the threshold setting doesn't force a rescan; display filters by the current threshold.
+
+### PB-R3 — background scan (`web/reading_list_suggest.py`, mirrors `web/metron_refresh.py`)
+- Daemon thread + polled status (`running`, `progress`, `last_run_at`, `last_error`, `last_result`).
+- Steps: build `{metron_series_id: set(local issue numbers)}` for all tracked series (one filesystem pass) +
+  distinct publishers. For each publisher: search public lists `average_rating__gte=min_rating`, paginate up
+  to the cap, dedupe by metron_id, **skip already-added lists**. Cap candidates at `rl_suggest_max`. For each
+  candidate: fetch items, `owned = items where metron_series_id is tracked and norm(number) ∈ its local set`,
+  `coverage = owned/total`. Upsert rows with coverage ≥ floor; delete cached rows no longer ≥ floor or now
+  added. Rate-limited via `metron_client` (block=True); stop the run on RateLimitedError (keep partial).
+
+### PB-R4 — routes (namespaced `/api/reading-list-suggestions` to avoid the `/{rl_id}` int-path clash)
+- `POST /api/reading-list-suggestions/scan` → kick the scan (returns the running flag).
+- `GET /api/reading-list-suggestions/status` → status dict (SPA polls while running).
+- `GET /api/reading-list-suggestions` → cached suggestions with `coverage*100 ≥ threshold`, sorted by
+  coverage desc, excluding already-added lists.
+- `GET/PUT /api/reading-list-suggestions/settings` → the three settings above.
+
+### PB-R5 — frontend
+- "Suggested for you" section on the Reading Lists page: a **Find suggestions** button + scan progress
+  (poll status), a threshold control, and suggestion cards (coverage %, owned/total) whose Add reuses the
+  existing preview/add flow. Extend `mock_api.py`. Verify via preview.
+
+### PB definition of done
+- Docker pytest: coverage computation (owned/total against a mocked tracked-series map + items), threshold
+  filtering on read, already-added lists excluded, floor storage. Scan worker tested with metron mocked.
+- Frontend build green; suggestions section verified in preview. CodeRabbit clean.
 
 ## Definition of done (objective gate)
 1. **Docker pytest** green incl. new `tests/test_reading_lists.py` (all external boundaries mocked —

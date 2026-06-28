@@ -74,7 +74,7 @@ def migrate_columns():
 def init_db():
     from web.models import (  # noqa: F401
         Series, MetronCache, MetronIssueCache, DownloadJob, MonitoredIssue, AppSetting,
-        ReadingList, ReadingListItem,
+        ReadingList, ReadingListItem, SuggestedReadingList,
     )
     Base.metadata.create_all(bind=engine)
     migrate_columns()

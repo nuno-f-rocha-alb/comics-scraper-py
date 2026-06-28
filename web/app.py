@@ -1831,18 +1831,23 @@ def _cleanup_old_logs(retention_days: int) -> int:
     return deleted
 
 
-def _get_log_setting(db, key: str, default: str) -> str:
+def _get_setting(db, key: str, default: str) -> str:
     row = db.get(AppSetting, key)
     return row.value if row else default
 
 
-def _set_log_setting(db, key: str, value: str) -> None:
+def _set_setting(db, key: str, value: str) -> None:
     row = db.get(AppSetting, key)
     if row:
         row.value = value
     else:
         db.add(AppSetting(key=key, value=value))
     db.commit()
+
+
+# Back-compat aliases (the log routes were the first users of AppSetting).
+_get_log_setting = _get_setting
+_set_log_setting = _set_setting
 
 
 # ── Calendar ───────────────────────────────────────────────────────────────────
@@ -2570,6 +2575,70 @@ def api_reading_list_push_komga(rl_id: int, db: Session = Depends(get_db)):
     except requests.RequestException as exc:
         raise HTTPException(status_code=502, detail=f"Komga request failed: {exc}")
     return result
+
+
+# ── Reading-list suggestions (Phase B — bounded scan, manual) ─────────────────
+# Namespaced separately from /api/reading-lists/{id} to avoid the int-path clash.
+
+@app.post("/api/reading-list-suggestions/scan")
+def api_suggest_scan():
+    from web import reading_list_suggest
+    started = reading_list_suggest.run_scan()
+    return {"started": started, **reading_list_suggest.get_status()}
+
+
+@app.get("/api/reading-list-suggestions/status")
+def api_suggest_status():
+    from web import reading_list_suggest
+    return reading_list_suggest.get_status()
+
+
+@app.get("/api/reading-list-suggestions/settings")
+def api_suggest_settings_get(db: Session = Depends(get_db)):
+    return {
+        "threshold": int(_get_setting(db, "rl_suggest_threshold", "50")),
+        "min_rating": float(_get_setting(db, "rl_suggest_min_rating", "3")),
+        "max_lists": int(_get_setting(db, "rl_suggest_max", "200")),
+    }
+
+
+class SuggestSettings(BaseModel):
+    threshold: int | None = None
+    min_rating: float | None = None
+    max_lists: int | None = None
+
+
+@app.put("/api/reading-list-suggestions/settings")
+def api_suggest_settings_put(payload: SuggestSettings, db: Session = Depends(get_db)):
+    if payload.threshold is not None:
+        _set_setting(db, "rl_suggest_threshold", str(max(1, min(100, payload.threshold))))
+    if payload.min_rating is not None:
+        _set_setting(db, "rl_suggest_min_rating", str(payload.min_rating))
+    if payload.max_lists is not None:
+        _set_setting(db, "rl_suggest_max", str(max(1, payload.max_lists)))
+    return api_suggest_settings_get(db)
+
+
+@app.get("/api/reading-list-suggestions")
+def api_suggestions(db: Session = Depends(get_db)):
+    from web.models import SuggestedReadingList
+    threshold = int(_get_setting(db, "rl_suggest_threshold", "50")) / 100.0
+    added = {r.metron_id for r in db.query(ReadingList.metron_id).all()}
+    rows = (
+        db.query(SuggestedReadingList)
+        .filter(SuggestedReadingList.coverage >= threshold)
+        .order_by(SuggestedReadingList.coverage.desc())
+        .all()
+    )
+    return {"suggestions": [
+        {
+            "metron_id": r.metron_id, "name": r.name, "image_url": r.image_url,
+            "list_type": r.list_type, "attribution_source": r.attribution_source,
+            "average_rating": r.average_rating, "owned": r.owned, "total": r.total,
+            "coverage": round(r.coverage * 100),
+        }
+        for r in rows if r.metron_id not in added
+    ]}
 
 
 # ── React SPA (the UI) ───────────────────────────────────────────────────────

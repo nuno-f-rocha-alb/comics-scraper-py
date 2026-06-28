@@ -435,6 +435,36 @@ export const deleteReadingList = (id: number) =>
   http<{ ok: boolean }>(`/api/reading-lists/${id}`, { method: "DELETE" })
 export const cblDownloadUrl = (id: number) => `/api/reading-lists/${id}/cbl`
 export const getKomgaStatus = () => http<{ configured: boolean }>("/api/komga/status")
+
+// Phase B — suggestions
+export interface Suggestion {
+  metron_id: number
+  name: string
+  image_url: string | null
+  list_type: string | null
+  attribution_source: string | null
+  average_rating: number | null
+  owned: number
+  total: number
+  coverage: number  // percent
+}
+export interface SuggestStatus {
+  running: boolean
+  last_run_at: string | null
+  last_error: string | null
+  progress: { current: string; done: number; total: number }
+  last_result: { scanned: number; kept: number }
+}
+export const getSuggestions = () => http<{ suggestions: Suggestion[] }>("/api/reading-list-suggestions")
+export const scanSuggestions = () =>
+  http<SuggestStatus & { started: boolean }>("/api/reading-list-suggestions/scan", { method: "POST" })
+export const getSuggestStatus = () => http<SuggestStatus>("/api/reading-list-suggestions/status")
+export const getSuggestSettings = () =>
+  http<{ threshold: number; min_rating: number; max_lists: number }>("/api/reading-list-suggestions/settings")
+export const putSuggestThreshold = (threshold: number) =>
+  http<{ threshold: number }>("/api/reading-list-suggestions/settings", {
+    method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ threshold }),
+  })
 export const pushReadingListToKomga = (id: number) =>
   postJSON<{ created: boolean; matched: number; unmatched: string[]; readlist_id: string | null }>(
     `/api/reading-lists/${id}/push-komga`, {},
