@@ -456,11 +456,15 @@ function SeriesGridCard({
               <BookOpen className="size-10" />
             </div>
           )}
-          {!s.enabled && (
+          {s.ended ? (
+            <Badge variant="secondary" className="absolute right-1.5 top-1.5 text-[0.6rem]">
+              Finished
+            </Badge>
+          ) : !s.enabled ? (
             <Badge variant="secondary" className="absolute right-1.5 top-1.5 text-[0.6rem]">
               Paused
             </Badge>
-          )}
+          ) : null}
         </div>
         <div className="px-2.5 pb-2.5 pt-2">
           <div className="line-clamp-2 text-sm font-semibold leading-snug">{s.series_name}</div>

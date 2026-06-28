@@ -128,7 +128,7 @@ export function SeriesDetail() {
             <div className="mb-1 flex flex-wrap items-center gap-2">
               <h1 className="text-2xl font-bold">{s.series_name}</h1>
               <Badge variant={s.enabled ? "default" : "secondary"}>
-                {s.enabled ? "Monitored" : "Paused"}
+                {s.ended ? "Finished" : s.enabled ? "Monitored" : "Paused"}
               </Badge>
             </div>
             <p className="mb-3 text-muted-foreground">

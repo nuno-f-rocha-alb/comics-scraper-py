@@ -109,6 +109,9 @@ needs (filtered by `issue_type`: Core/Tie-In/Prologue/Epilogue), exports a **CBL
 - Frontend: `ReadingLists.tsx` (search + add sheet) + `ReadingListDetail.tsx`.
 - **Komga config is env-only** (`config.py` → `KOMGA_URL`, `KOMGA_API_KEY`; in `docker-compose.yml`).
   Unset → push route returns 400 and the UI hides the button. CBL export needs no config.
+- **Nightly Komga re-push** (`scheduler._wrapped_komga_nightly`, `KOMGA_NIGHTLY_CRON` default `30 3 * * *`)
+  create-or-updates every reading list on Komga so issues added since are picked up; no-op when unconfigured.
+  Shares `web/app.py:_push_reading_list_komga` with the manual push route.
 - **Phase B (deferred):** auto-suggest lists with ≥X% owned (needs a bounded background scan — Metron has no
   reverse "lists containing issue X" lookup). See `specs/reading-lists.md`.
 
