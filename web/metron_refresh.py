@@ -27,8 +27,12 @@ def get_status() -> dict:
         }
 
 
-def run_refresh(force: bool = True) -> bool:
-    """Spawn a background Metron refresh thread. Returns False if already running."""
+def run_refresh(force: bool = True, skip_titles: bool = True, only_active: bool = False) -> bool:
+    """Spawn a background Metron refresh thread. Returns False if already running.
+
+    skip_titles=False also resolves per-issue titles (heavier; for the nightly
+    job which blocks through burst limits). only_active=True refreshes only
+    non-ended series (ended ones get no new issues)."""
     global _running
     with _lock:
         if _running:
@@ -49,13 +53,15 @@ def run_refresh(force: bool = True) -> bool:
             # the finally that clears _running (else refresh stays blocked).
             # web.app imports this module, so a top-level import would be
             # circular (same trick scanner.py uses for retag_comics).
-            from web.app import _refresh_one_series
+            from web.app import _refresh_one_series, _is_series_ended
             from web.database import SessionLocal
             from web.models import Series
             from metadata.metron_client import RateLimitedError
 
             db = SessionLocal()
             rows = db.query(Series).order_by(Series.publisher, Series.series_name).all()
+            if only_active:
+                rows = [s for s in rows if not _is_series_ended(s)]
             total = len(rows)
             with _lock:
                 _progress = {"current": "", "done": 0, "total": total}
@@ -66,7 +72,7 @@ def run_refresh(force: bool = True) -> bool:
                     _progress = {"current": s.series_name, "done": i, "total": total}
                 try:
                     before_id = s.metron_series_id
-                    refreshed = _refresh_one_series(s, db, force=force)
+                    refreshed = _refresh_one_series(s, db, force=force, skip_titles=skip_titles)
                     # Commit per series so a later failure's rollback can't
                     # discard the series already refreshed in this run.
                     db.commit()
@@ -100,5 +106,11 @@ def run_refresh(force: bool = True) -> bool:
                 counts["refreshed"], counts["ids_found"], counts["skipped"], counts["errors"],
             )
 
-    threading.Thread(target=_worker, daemon=True, name="metron-refresh").start()
+    try:
+        threading.Thread(target=_worker, daemon=True, name="metron-refresh").start()
+    except Exception:
+        # Don't leave _running stuck on if the thread never starts.
+        with _lock:
+            _running = False
+        raise
     return True

@@ -208,7 +208,7 @@ def _apply_metron_series_data(s: Series, data: dict) -> None:
 _METRON_META_TTL = timedelta(days=7)
 
 
-def _refresh_one_series(s: Series, db: Session, *, force: bool = False) -> bool:
+def _refresh_one_series(s: Series, db: Session, *, force: bool = False, skip_titles: bool = True) -> bool:
     """Unified per-series Metron refresh — the single path used by the background
     refresh job and the scheduler pre-run.
 
@@ -268,7 +268,7 @@ def _refresh_one_series(s: Series, db: Session, *, force: bool = False) -> bool:
 
     for mid in filter(None, (s.metron_series_id, s.metron_annual_series_id)):
         try:
-            _get_or_fetch_metron_issues(mid, db, force=True, skip_titles=True)
+            _get_or_fetch_metron_issues(mid, db, force=True, skip_titles=skip_titles)
         except RateLimitedError:
             raise
         except Exception as exc:
@@ -371,9 +371,20 @@ def _build_issue_list(raw: list[dict], local_nums: set[str]) -> list[dict]:
 _ISSUE_CACHE_DAYS = 7
 
 
+def _issue_sort_key(r):
+    """Sort cached issues numerically (1, 2, 10), non-numeric last — mirrors the
+    Metron fetch path's ordering=number so cache and fresh reads agree."""
+    raw = (r.number or "").strip()
+    try:
+        return (0, float(raw), raw)
+    except (TypeError, ValueError):
+        return (1, float("inf"), raw)
+
+
 def _get_or_fetch_metron_issues(
     metron_series_id: int, db: Session, *,
     force: bool = False, block: bool = True, skip_titles: bool = False,
+    refresh_if_stale: bool = True,
 ) -> list[dict]:
     """Return issues from local cache (if fresh) else fetch from Metron and store.
 
@@ -381,32 +392,35 @@ def _get_or_fetch_metron_issues(
     titles — use from background jobs that only need the issue list (e.g.,
     refreshing total_issues), because that detail call is the main source of
     burst-rate-limit pressure (N calls per series).
+
+    refresh_if_stale=False returns the cache whenever ANY rows exist (ignoring the
+    TTL) and only goes to Metron when the cache is empty — the page-open path, so
+    a passive view never blocks on Metron (the nightly job keeps the cache fresh).
     """
     from datetime import timedelta
 
     if not force:
-        cutoff = datetime.utcnow() - timedelta(days=_ISSUE_CACHE_DAYS)
-        first = (
+        rows = (
             db.query(MetronIssueCache)
             .filter(MetronIssueCache.series_id == metron_series_id)
-            .first()
+            .all()
         )
-        if first and first.cached_at > cutoff:
-            rows = (
-                db.query(MetronIssueCache)
-                .filter(MetronIssueCache.series_id == metron_series_id)
-                .all()
-            )
-            return [
-                {
-                    "number": r.number,
-                    "cover_date": r.cover_date,
-                    "store_date": r.store_date,
-                    "image": r.image_url,
-                    "issue_name": r.name,
-                }
-                for r in rows
-            ]
+        if rows:
+            # Freshness off the oldest row (a partial refresh can leave mixed ages).
+            oldest = min((r.cached_at for r in rows if r.cached_at), default=None)
+            fresh = bool(oldest and oldest > datetime.utcnow() - timedelta(days=_ISSUE_CACHE_DAYS))
+            if fresh or not refresh_if_stale:
+                rows.sort(key=_issue_sort_key)  # match the fetch path's ordering=number
+                return [
+                    {
+                        "number": r.number,
+                        "cover_date": r.cover_date,
+                        "store_date": r.store_date,
+                        "image": r.image_url,
+                        "issue_name": r.name,
+                    }
+                    for r in rows
+                ]
 
     raw = _fetch_metron_issues(metron_series_id, block=block)
 
@@ -873,6 +887,9 @@ def _scheduler_status_json() -> dict:
         "last_run_at": st["last_run_at"].isoformat() if st["last_run_at"] else None,
         "last_run_error": st["last_run_error"],
         "next_run_at": st["next_run_at"].isoformat() if st["next_run_at"] else None,
+        "metron_nightly_next_run_at": (
+            st["metron_nightly_next_run_at"].isoformat() if st.get("metron_nightly_next_run_at") else None
+        ),
         "mode": st["mode"],
         "value": st["value"],
     }
@@ -1316,7 +1333,8 @@ def api_series_issues(series_id: int, force: bool = False, db: Session = Depends
     local_nums = _local_issue_numbers(s)
     local_annual_nums = _local_annual_issue_numbers(s) if s.metron_annual_series_id else set()
     try:
-        raw = _get_or_fetch_metron_issues(s.metron_series_id, db, force=force, block=False)
+        raw = _get_or_fetch_metron_issues(s.metron_series_id, db, force=force, block=False,
+                                          refresh_if_stale=False, skip_titles=not force)
         regular = _build_issue_list(raw, local_nums)
     except RateLimitedError as exc:
         return {"has_metron": True, "rate_limited": int(exc.seconds) + 2, "regular": [], "annual": []}
@@ -1327,7 +1345,8 @@ def api_series_issues(series_id: int, force: bool = False, db: Session = Depends
     if s.metron_annual_series_id:
         try:
             annual = _build_issue_list(
-                _get_or_fetch_metron_issues(s.metron_annual_series_id, db, force=force, block=False),
+                _get_or_fetch_metron_issues(s.metron_annual_series_id, db, force=force, block=False,
+                                            refresh_if_stale=False, skip_titles=not force),
                 local_annual_nums,
             )
         except Exception:
