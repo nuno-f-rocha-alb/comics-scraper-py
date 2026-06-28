@@ -118,8 +118,7 @@ function MetronSearchStep({ onSelect }: { onSelect: (r: MetronResult) => void })
                   </h3>
                   <p className="text-sm text-muted-foreground">{r.publisher ?? "—"}</p>
                   <p className="mb-auto text-sm text-muted-foreground">
-                    {r.year_began ?? ""}
-                    {r.issue_count ? ` · ${r.issue_count} issues` : ""}
+                    {[r.year_began, r.issue_count ? `${r.issue_count} issues` : null].filter(Boolean).join(" · ")}
                   </p>
                   <Button size="sm" className="mt-2 self-start" onClick={() => onSelect(r)}>
                     <Plus /> Select

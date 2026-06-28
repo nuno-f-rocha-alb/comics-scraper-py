@@ -83,11 +83,13 @@ export function Releases() {
                     <Link to={`/series/${m.series_id}`} className="hover:underline">{m.series_name}</Link>
                     <span className="ml-1 text-muted-foreground">#{m.issue_number}</span>
                   </div>
-                  <div className="truncate text-xs text-muted-foreground">
-                    <a href={m.url} target="_blank" rel="noopener noreferrer" className="hover:text-foreground">
-                      {m.title}
-                    </a>
-                    {m.pub_date && ` · ${fmtDate(m.pub_date)}`}
+                  <div className="text-xs text-muted-foreground">
+                    <span className="block truncate">
+                      <a href={m.url} target="_blank" rel="noopener noreferrer" className="hover:text-foreground">
+                        {m.title}
+                      </a>
+                    </span>
+                    {m.pub_date && <span>{fmtDate(m.pub_date)}</span>}
                   </div>
                 </div>
                 <div className="shrink-0">
