@@ -66,9 +66,9 @@ export function ReadingListDetail() {
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <a href={cblDownloadUrl(rlId)}>
-              <Button variant="outline" size="sm"><Download className="size-4" /> Download CBL</Button>
-            </a>
+            <Button asChild variant="outline" size="sm">
+              <a href={cblDownloadUrl(rlId)}><Download className="size-4" /> Download CBL</a>
+            </Button>
             {komga.data?.configured && (
               <Button variant="outline" size="sm" onClick={() => push.mutate()} disabled={push.isPending}>
                 <UploadCloud className="size-4" /> {push.isPending ? "Pushing…" : "Push to Komga"}

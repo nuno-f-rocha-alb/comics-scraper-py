@@ -153,10 +153,10 @@ function SuggestSection({ onAdd }: { onAdd: (metronId: number) => void }) {
   useEffect(() => {
     if (prevRunning.current && !running) {
       qc.invalidateQueries({ queryKey: ["rl-suggestions"] })
-      toast.success(`Scan done — ${status.data?.last_result.kept ?? 0} suggestions`)
+      toast.success(`Scan done — ${status.data?.last_result?.kept ?? 0} suggestions`)
     }
     prevRunning.current = running
-  }, [running, qc, status.data?.last_result.kept])
+  }, [running, qc, status.data?.last_result?.kept])
 
   const scan = useMutation({
     mutationFn: scanSuggestions,
