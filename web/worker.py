@@ -265,11 +265,17 @@ def _process(job_id: int) -> None:
             return
 
         # Cancelled while still in the queue — drop it without touching the network.
+        # Mirror the finally-block cleanup so a job cancelled after a prior
+        # transient attempt ends fully terminal: no leftover retry count or
+        # stale "retrying…" error text.
         if job.status == "cancelled" or _is_cancelled(job_id):
             job.status = "cancelled"
+            job.error = None
             job.finished_at = datetime.now(timezone.utc)
             db.commit()
             _clear_cancel(job_id)
+            _attempts.pop(job_id, None)
+            _clear_progress(job_id)
             return
 
         job.status = "downloading"

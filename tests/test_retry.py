@@ -80,6 +80,27 @@ def test_permanent_failure_fails_immediately(db, monkeypatch):
     assert job_id not in worker._attempts
 
 
+def test_queued_cancel_clears_retry_state(db, monkeypatch):
+    """A job cancelled while queued after a prior transient attempt must end
+    fully terminal: no leftover _attempts entry, no stale 'retrying…' error."""
+    job_id = _make_job(db)
+    # Simulate a prior transient attempt that left bookkeeping behind.
+    worker._attempts[job_id] = 1
+    db.get(DownloadJob, job_id).error = "retrying (1/3): boom"
+    db.commit()
+    worker.request_cancel(job_id)
+
+    worker._process(job_id)
+
+    db.expire_all()
+    job = db.get(DownloadJob, job_id)
+    assert job.status == "cancelled"
+    assert job.finished_at is not None
+    assert not job.error
+    assert job_id not in worker._attempts
+    assert not worker._is_cancelled(job_id)
+
+
 def test_retries_exhausted_fails(db, monkeypatch):
     job_id = _make_job(db)
     monkeypatch.setattr(worker, "_download_issue",
