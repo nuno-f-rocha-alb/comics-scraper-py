@@ -183,6 +183,43 @@ def test_suggestion_threshold_setting(client, db):
     assert names == ["Low"]  # now above the lowered 25% threshold
 
 
+def test_nightly_komga_repush(db, monkeypatch):
+    import web.scheduler as sched
+    import web.komga_client as kc
+    import web.app as appmod
+    rl = ReadingList(metron_id=1, name="L", num_items=1)
+    db.add(rl); db.commit()
+
+    monkeypatch.setattr(kc, "is_configured", lambda: True)
+    pushed: list[str] = []
+    monkeypatch.setattr(appmod, "_push_reading_list_komga",
+                        lambda r, d: pushed.append(r.name) or {"matched": 1, "unmatched": []})
+
+    sched._wrapped_komga_nightly()
+    assert pushed == ["L"]
+
+
+def test_nightly_komga_noop_when_unconfigured(db, monkeypatch):
+    import web.scheduler as sched
+    import web.komga_client as kc
+    import web.app as appmod
+    db.add(ReadingList(metron_id=2, name="X", num_items=1)); db.commit()
+    monkeypatch.setattr(kc, "is_configured", lambda: False)
+    called = {"n": 0}
+    monkeypatch.setattr(appmod, "_push_reading_list_komga", lambda r, d: called.__setitem__("n", called["n"] + 1))
+    sched._wrapped_komga_nightly()
+    assert called["n"] == 0  # never touches Komga when not configured
+
+
+def test_overview_exposes_ended_flag(client, db):
+    db.add(Series(publisher="DC", series_name="Watchmen", year=1986, status="Completed"))
+    db.add(Series(publisher="Image", series_name="Saga", year=2012, status="Ongoing"))
+    db.commit()
+    cards = {c["series_name"]: c for c in client.get("/api/series/overview").json()["series"]}
+    assert cards["Watchmen"]["ended"] is True
+    assert cards["Saga"]["ended"] is False
+
+
 def test_komga_push_builds_ordered_payload(monkeypatch):
     from web import komga_client
     monkeypatch.setattr(komga_client, "KOMGA_URL", "http://komga:25600")

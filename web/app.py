@@ -1069,6 +1069,7 @@ def api_series_overview(db: Session = Depends(get_db)):
                 "getcomics_search_name": s.getcomics_search_name,
                 "local_count": local_counts[s.id],
                 "status": statuses[s.id],
+                "ended": _is_series_ended(s),
             }
             for s in rows
         ],
@@ -1092,6 +1093,7 @@ def _series_dict(s: Series) -> dict:
         "cover_image_url": s.cover_image_url,
         "total_issues": s.total_issues,
         "enabled": s.enabled,
+        "ended": _is_series_ended(s),
     }
 
 
@@ -2580,6 +2582,20 @@ def api_komga_status():
     return {"configured": komga_client.is_configured()}
 
 
+def _push_reading_list_komga(rl: ReadingList, db: Session) -> dict:
+    """Create/update the Komga read list for a ReadingList. Shared by the manual
+    push route and the nightly auto-push job. Assumes Komga is configured."""
+    from web import komga_client
+    items = (
+        db.query(ReadingListItem)
+        .filter(ReadingListItem.reading_list_id == rl.id)
+        .order_by(ReadingListItem.order)
+        .all()
+    )
+    entries = [(it.series_name or "", it.number or "") for it in items]
+    return komga_client.push_reading_list(rl.name, "Imported from Metron reading list", entries)
+
+
 @app.post("/api/reading-lists/{rl_id}/push-komga")
 def api_reading_list_push_komga(rl_id: int, db: Session = Depends(get_db)):
     from web import komga_client
@@ -2588,18 +2604,10 @@ def api_reading_list_push_komga(rl_id: int, db: Session = Depends(get_db)):
     rl = db.get(ReadingList, rl_id)
     if not rl:
         raise HTTPException(status_code=404)
-    items = (
-        db.query(ReadingListItem)
-        .filter(ReadingListItem.reading_list_id == rl.id)
-        .order_by(ReadingListItem.order)
-        .all()
-    )
-    entries = [(it.series_name or "", it.number or "") for it in items]
     try:
-        result = komga_client.push_reading_list(rl.name, "Imported from Metron reading list", entries)
+        return _push_reading_list_komga(rl, db)
     except requests.RequestException as exc:
         raise HTTPException(status_code=502, detail=f"Komga request failed: {exc}")
-    return result
 
 
 # ── Reading-list suggestions (Phase B — bounded scan, manual) ─────────────────

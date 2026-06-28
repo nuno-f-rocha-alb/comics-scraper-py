@@ -20,6 +20,7 @@ export interface SeriesCard {
   getcomics_search_name: string | null
   local_count: number
   status: SeriesStatus
+  ended: boolean
 }
 
 export interface SeriesStats {
@@ -99,6 +100,7 @@ export interface Series {
   cover_image_url: string | null
   total_issues: number | null
   enabled: boolean
+  ended?: boolean
 }
 
 export interface SeriesUpdate {

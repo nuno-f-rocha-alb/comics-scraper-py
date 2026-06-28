@@ -26,6 +26,11 @@ except (TypeError, ValueError):
 _METRON_NIGHTLY_CRON = os.getenv("METRON_NIGHTLY_CRON", "0 3 * * *")
 _METRON_NIGHTLY_JOB_ID = "metron_nightly"
 
+# Nightly Komga read-list re-push — keeps Komga read lists in sync as a reading
+# list's monitored issues get downloaded (no-op when Komga isn't configured).
+_KOMGA_NIGHTLY_CRON = os.getenv("KOMGA_NIGHTLY_CRON", "30 3 * * *")
+_KOMGA_NIGHTLY_JOB_ID = "komga_nightly"
+
 _scheduler = BackgroundScheduler()
 _running = False
 _last_run_at: datetime | None = None
@@ -115,6 +120,35 @@ def _wrapped_metron_nightly() -> None:
         run_refresh(force=True, skip_titles=False, only_active=True)
     except Exception as exc:
         log.warning("Nightly Metron refresh failed to start: %s", exc)
+
+
+def _wrapped_komga_nightly() -> None:
+    """Nightly: re-push every reading list to Komga so newly-downloaded issues
+    get added automatically (create-or-update). No-op when Komga isn't set."""
+    try:
+        from web.komga_client import is_configured
+        if not is_configured():
+            return
+        from web.database import SessionLocal
+        from web.models import ReadingList
+        from web.app import _push_reading_list_komga
+        with SessionLocal() as db:
+            rl_ids = [rid for (rid,) in db.query(ReadingList.id).all()]
+        # Short-lived session per list so a DB connection isn't held across the
+        # per-list Komga HTTP work.
+        for rid in rl_ids:
+            with SessionLocal() as db:
+                rl = db.get(ReadingList, rid)
+                if not rl:
+                    continue
+                try:
+                    res = _push_reading_list_komga(rl, db)
+                    log.info("Komga nightly: '%s' → %d matched, %d unmatched",
+                             rl.name, res.get("matched", 0), len(res.get("unmatched", [])))
+                except Exception as exc:
+                    log.warning("Komga nightly push failed for '%s': %s", rl.name, exc)
+    except Exception as exc:
+        log.warning("Komga nightly job failed: %s", exc)
 
 
 def trigger_now() -> None:
@@ -229,6 +263,16 @@ def start_scheduler() -> None:
         _scheduler.add_job(_wrapped_metron_nightly, trigger=CronTrigger(hour=3), id=_METRON_NIGHTLY_JOB_ID)
         _nightly_desc = "0 3 * * * (fallback)"
         log.warning("Invalid METRON_NIGHTLY_CRON %r — using 03:00 daily.", _METRON_NIGHTLY_CRON)
+    # Nightly Komga read-list re-push (no-op when Komga unconfigured).
+    try:
+        _scheduler.add_job(
+            _wrapped_komga_nightly,
+            trigger=CronTrigger.from_crontab(_KOMGA_NIGHTLY_CRON),
+            id=_KOMGA_NIGHTLY_JOB_ID,
+        )
+    except ValueError:
+        _scheduler.add_job(_wrapped_komga_nightly, trigger=CronTrigger(hour=3, minute=30), id=_KOMGA_NIGHTLY_JOB_ID)
+        log.warning("Invalid KOMGA_NIGHTLY_CRON %r — using 03:30 daily.", _KOMGA_NIGHTLY_CRON)
     _scheduler.start()
     log.info(
         "Scheduler started — scraper mode=%s value=%s, RSS poll every %dm, Metron nightly '%s'",
