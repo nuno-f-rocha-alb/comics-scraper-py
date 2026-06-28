@@ -66,3 +66,8 @@ PGID = int(os.getenv("PGID", 1000))
 METRON_BASE_URL = "https://metron.cloud/api"
 METRON_USER = os.getenv("METRON_USER", "")
 METRON_PASS = os.getenv("METRON_PASS", "")
+
+# Komga read-list push (optional). Unset → the push route returns 400 and the UI
+# hides the button. KOMGA_URL has no trailing slash (e.g. http://komga:25600).
+KOMGA_URL = os.getenv("KOMGA_URL", "").rstrip("/")
+KOMGA_API_KEY = os.getenv("KOMGA_API_KEY", "")

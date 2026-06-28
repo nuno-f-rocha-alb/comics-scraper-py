@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from sqlalchemy import Boolean, DateTime, Index, Integer, String, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, Float, Index, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 from web.database import Base
 
@@ -137,6 +137,55 @@ class MetronCache(Base):
     cached_at: Mapped[datetime] = mapped_column(
         DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
     )
+
+
+class ReadingList(Base):
+    """A Metron reading list mirrored locally. These rows + ReadingListItem are
+    the backup: CBL export, status and monitoring all read from here, so Metron
+    is hit only on add / re-sync."""
+    __tablename__ = "reading_lists"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    metron_id: Mapped[int] = mapped_column(Integer, nullable=False, unique=True)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    slug: Mapped[str | None] = mapped_column(String, nullable=True)
+    list_type: Mapped[str | None] = mapped_column(String, nullable=True)
+    attribution_source: Mapped[str | None] = mapped_column(String, nullable=True)
+    attribution_url: Mapped[str | None] = mapped_column(String, nullable=True)
+    image_url: Mapped[str | None] = mapped_column(String, nullable=True)
+    desc: Mapped[str | None] = mapped_column(String, nullable=True)
+    average_rating: Mapped[float | None] = mapped_column(Float, nullable=True)
+    num_items: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # CSV of issue_types monitored on add (e.g. "Core Issue,Tie-In"); empty = all.
+    monitored_issue_types: Mapped[str] = mapped_column(String, nullable=False, default="", server_default="")
+    added_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
+    )
+    synced_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class ReadingListItem(Base):
+    """One issue in a reading list, in reading order."""
+    __tablename__ = "reading_list_items"
+    __table_args__ = (
+        UniqueConstraint("reading_list_id", "metron_issue_id", name="uq_reading_list_item"),
+        Index("ix_reading_list_items_list", "reading_list_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    reading_list_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    issue_type: Mapped[str] = mapped_column(String, nullable=False, default="", server_default="")
+    metron_issue_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    metron_series_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    series_name: Mapped[str | None] = mapped_column(String, nullable=True)
+    series_year: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    number: Mapped[str | None] = mapped_column(String, nullable=True)
+    cover_year: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    cv_issue_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    cv_series_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Local Series this item maps to, once created/matched.
+    series_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 
 class MetronIssueCache(Base):

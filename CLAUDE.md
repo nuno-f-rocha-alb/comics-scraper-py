@@ -89,6 +89,23 @@ web/templates/
 - **Phase 4** ✅ — Verify step: live getcomics.org check before saving
 - **Phase 5** ✅ — *arr-style card grid + series detail page with issues list
 
+## Reading lists (§7) ✅ Phase A
+Search Metron reading lists, add one → creates/finds the series and monitors **only** the issues the list
+needs (filtered by `issue_type`: Core/Tie-In/Prologue/Epilogue), exports a **CBL** for Komga import, and can
+**push directly to Komga** via its API.
+- Tables: `ReadingList` + `ReadingListItem` (`web/models.py`) — these are the **local backup**: CBL, status
+  and monitoring read from here, so Metron is hit only on add / re-sync (search uses a short in-memory TTL).
+- Modules: `metadata/metron_reading_lists.py` (Metron `/reading_list/` client + `parse_item`),
+  `web/cbl.py` (CBL XML — Komga matches on Series+Number, so Series = Metron name = what the app tags),
+  `web/komga_client.py` (best-effort name+number → bookId match, create/update read list).
+- Routes in `web/app.py`: `/api/reading-lists/search|/metron/{id}/preview`, `POST /api/reading-lists`,
+  `GET /api/reading-lists[/{id}]`, `/resync`, `DELETE`, `/cbl`, `POST /push-komga`, `GET /api/komga/status`.
+- Frontend: `ReadingLists.tsx` (search + add sheet) + `ReadingListDetail.tsx`.
+- **Komga config is env-only** (`config.py` → `KOMGA_URL`, `KOMGA_API_KEY`; in `docker-compose.yml`).
+  Unset → push route returns 400 and the UI hides the button. CBL export needs no config.
+- **Phase B (deferred):** auto-suggest lists with ≥X% owned (needs a bounded background scan — Metron has no
+  reverse "lists containing issue X" lookup). See `specs/reading-lists.md`.
+
 ## Backend tests (`tests/`) — run in a prod-faithful container
 Backend deps (sqlalchemy/comicapi/…) aren't on the host, so tests run inside the same `python:3.12`
 image as prod. `pytest` mocks every external boundary (DB → temp SQLite, comics → temp dir, worker
