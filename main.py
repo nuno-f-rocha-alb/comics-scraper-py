@@ -39,47 +39,11 @@ def _load_series() -> list[tuple]:
     return result
 
 
-def _refresh_metron_caches() -> None:
-    """Force-refresh the Metron issue cache for every enabled series before the
-    scraper run, so Series.total_issues (= scraper issue_max upper bound) is
-    current. Without this, a series that gains a new issue on Metron would be
-    invisible to the scraper until the user manually clicks Refresh in the UI.
-    """
-    from web.app import _refresh_one_series
-    from web.database import SessionLocal
-    from web.models import Series
-    from metadata.metron_client import RateLimitedError
-
-    with SessionLocal() as db:
-        rows = (
-            db.query(Series)
-            .filter(Series.enabled == True)  # noqa: E712
-            .filter(Series.metron_series_id.isnot(None))
-            .all()
-        )
-        if not rows:
-            return
-        logging.info("Refreshing Metron caches for %d series before scrape…", len(rows))
-        for s in rows:
-            # force=False → the TTL skips redundant per-series *detail* calls,
-            # but _refresh_one_series always force-refreshes the issue list, so
-            # newly-released issues stay visible to the scraper every run.
-            try:
-                _refresh_one_series(s, db, force=False)
-            except RateLimitedError:
-                logging.warning("Metron rate limited — skipping remaining series.")
-                db.commit()
-                return
-            except Exception as exc:
-                logging.warning(
-                    "Could not refresh Metron cache for %s: %s", s.series_name, exc
-                )
-        db.commit()
-
-
 def run_scraper():
     start_time = time.time()
-    _refresh_metron_caches()
+    # Metron cache (incl. total_issues = issue_max bound) is refreshed by the
+    # nightly metron_nightly job for non-ended series; fresh releases come via the
+    # RSS poll. So the scraper no longer pre-refreshes Metron every run.
     series_list = _load_series()
 
     for series_id, entry, monitored_regular, monitored_annual in series_list:
