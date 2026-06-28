@@ -21,6 +21,11 @@ try:
 except (TypeError, ValueError):
     _RSS_POLL_MINUTES = 30
 
+# Nightly Metron cache refresh (§ cache-first) — keeps issue lists/meta warm so
+# series pages read cache-only and never block on Metron. Standard 5-field cron.
+_METRON_NIGHTLY_CRON = os.getenv("METRON_NIGHTLY_CRON", "0 3 * * *")
+_METRON_NIGHTLY_JOB_ID = "metron_nightly"
+
 _scheduler = BackgroundScheduler()
 _running = False
 _last_run_at: datetime | None = None
@@ -103,6 +108,15 @@ def _wrapped_rss_poll() -> None:
         log.warning("RSS poll failed: %s", exc)
 
 
+def _wrapped_metron_nightly() -> None:
+    """Nightly Metron cache refresh: non-ended series, full titles, blocking."""
+    try:
+        from web.metron_refresh import run_refresh
+        run_refresh(force=True, skip_titles=False, only_active=True)
+    except Exception as exc:
+        log.warning("Nightly Metron refresh failed to start: %s", exc)
+
+
 def trigger_now() -> None:
     """Run the scraper immediately in a background thread."""
     t = threading.Thread(target=_wrapped_run, daemon=True, name="scraper-manual")
@@ -116,6 +130,7 @@ def is_running() -> bool:
 def get_status() -> dict:
     job = _scheduler.get_job(_JOB_ID)
     rss_job = _scheduler.get_job(_RSS_JOB_ID)
+    nightly_job = _scheduler.get_job(_METRON_NIGHTLY_JOB_ID)
     mode, value = load_config()
     return {
         "running": _running,
@@ -124,6 +139,7 @@ def get_status() -> dict:
         "next_run_at": job.next_run_time if job else None,
         "rss_next_run_at": rss_job.next_run_time if rss_job else None,
         "rss_poll_minutes": _RSS_POLL_MINUTES,
+        "metron_nightly_next_run_at": nightly_job.next_run_time if nightly_job else None,
         "mode": mode,
         "value": value,
     }
@@ -200,10 +216,23 @@ def start_scheduler() -> None:
         id=_RSS_JOB_ID,
         next_run_time=datetime.now(),
     )
+    # Nightly Metron cache refresh — scheduled only (no immediate run).
+    try:
+        _scheduler.add_job(
+            _wrapped_metron_nightly,
+            trigger=CronTrigger.from_crontab(_METRON_NIGHTLY_CRON),
+            id=_METRON_NIGHTLY_JOB_ID,
+        )
+        _nightly_desc = _METRON_NIGHTLY_CRON
+    except ValueError:
+        # Bad cron string → fall back to 03:00 daily rather than crash startup.
+        _scheduler.add_job(_wrapped_metron_nightly, trigger=CronTrigger(hour=3), id=_METRON_NIGHTLY_JOB_ID)
+        _nightly_desc = "0 3 * * * (fallback)"
+        log.warning("Invalid METRON_NIGHTLY_CRON %r — using 03:00 daily.", _METRON_NIGHTLY_CRON)
     _scheduler.start()
     log.info(
-        "Scheduler started — scraper mode=%s value=%s, RSS poll every %dm",
-        mode, value, _RSS_POLL_MINUTES,
+        "Scheduler started — scraper mode=%s value=%s, RSS poll every %dm, Metron nightly '%s'",
+        mode, value, _RSS_POLL_MINUTES, _nightly_desc,
     )
 
 

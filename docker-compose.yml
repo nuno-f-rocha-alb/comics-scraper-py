@@ -13,6 +13,8 @@ services:
       - COMICVINE_API_KEY=your_comicvine_api_key
       - SCHEDULE_INTERVAL_HOURS=24
       - LOG_LEVEL=INFO   # DEBUG to trace every Metron API request
+      # Nightly Metron cache refresh (keeps series pages cache-only). 5-field cron.
+      - METRON_NIGHTLY_CRON=0 3 * * *
       # Optional — enables pushing reading lists straight to Komga (CBL export
       # works without these). Set KOMGA_URL (no trailing slash, e.g.
       # http://komga:25600) + KOMGA_API_KEY in your shell/.env to turn it on;
