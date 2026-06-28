@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react"
 import { Link, Outlet, useLocation } from "react-router-dom"
 import { toast } from "sonner"
 import {
+  BookMarked,
   CalendarDays,
   Clock,
   Download,
@@ -28,6 +29,7 @@ const NAV = [
     match: (p: string) => p === "/series" || (p.startsWith("/series/") && p !== "/series/add"),
   },
   { to: "/series/add", label: "Add Series", icon: PlusCircle, match: (p: string) => p === "/series/add" },
+  { to: "/reading-lists", label: "Reading Lists", icon: BookMarked, match: (p: string) => p.startsWith("/reading-lists") },
   { to: "/calendar", label: "Calendar", icon: CalendarDays, match: (p: string) => p.startsWith("/calendar") },
   { to: "/releases", label: "Releases", icon: Rss, match: (p: string) => p.startsWith("/releases") },
   { to: "/downloads", label: "Downloads", icon: Download, match: (p: string) => p.startsWith("/downloads") },
