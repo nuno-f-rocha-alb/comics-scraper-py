@@ -1,13 +1,15 @@
 import logging
 import os
 import re
+import time
+import requests
 from contextlib import asynccontextmanager
 from calendar import monthrange
 from datetime import date, datetime, timedelta, timezone
 log = logging.getLogger(__name__)
 
 from fastapi import Depends, FastAPI, HTTPException, Query
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, field_validator
 from sqlalchemy.exc import IntegrityError
@@ -15,7 +17,10 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from web.database import SessionLocal, init_db
-from web.models import AppSetting, DownloadJob, MetronCache, MetronIssueCache, MonitoredIssue, Series
+from web.models import (
+    AppSetting, DownloadJob, MetronCache, MetronIssueCache, MonitoredIssue,
+    ReadingList, ReadingListItem, Series,
+)
 
 COMICS_BASE_DIR = os.getenv("COMICS_BASE_DIR", "/app/comics")
 
@@ -164,6 +169,13 @@ def _refresh_series_meta_from_metron(s: Series, db: Session) -> bool:
         log.warning("Could not refresh series meta for %s: %s", s.series_name, exc)
         return False
 
+    _apply_metron_series_data(s, data)
+    return True
+
+
+def _apply_metron_series_data(s: Series, data: dict) -> None:
+    """Map a Metron /series/{id}/ detail dict onto a Series row (cover, total,
+    type, status, year_end, cv_id). Shared by refresh + reading-list create."""
     img = data.get("image") or ""
     new_cover = img if isinstance(img, str) and img else None
     if new_cover:
@@ -185,7 +197,6 @@ def _refresh_series_meta_from_metron(s: Series, db: Session) -> bool:
         s.year_end = ye
     if not s.comicvine_volume_id and data.get("cv_id"):
         s.comicvine_volume_id = data["cv_id"]
-    return True
 
 
 _METRON_META_TTL = timedelta(days=7)
@@ -2210,6 +2221,355 @@ def api_log_settings(payload: LogSettings, db: Session = Depends(get_db)):
     days = max(1, payload.log_retention_days)
     _set_log_setting(db, "log_retention_days", str(days))
     return {"retention_days": days}
+
+
+# ── Reading lists ────────────────────────────────────────────────────────────
+
+def _norm_issue_num(n) -> str:
+    """Match the scraper/monitoring normalisation ('001' == '1' == '1.0')."""
+    try:
+        return str(int(float(n)))
+    except (ValueError, TypeError):
+        return str(n or "").strip()
+
+
+# In-memory TTL cache for reading-list SEARCH only — the added lists are the
+# durable backup. ponytail: lost on restart, fine for search.
+_RL_SEARCH_CACHE: dict[tuple, tuple[float, list]] = {}
+_RL_SEARCH_TTL = 3600  # seconds
+
+
+def _create_or_get_series_from_metron(metron_series_id: int, db: Session) -> Series | None:
+    """Find a local Series by metron_series_id, or create it from Metron detail."""
+    s = db.query(Series).filter(Series.metron_series_id == metron_series_id).first()
+    if s:
+        return s
+    from config import METRON_BASE_URL
+    from metadata.metron_client import RateLimitedError, get as metron_get
+    try:
+        data = metron_get(f"{METRON_BASE_URL}/series/{metron_series_id}/", block=False).json()
+    except RateLimitedError:
+        raise
+    except Exception as exc:
+        log.warning("Could not fetch Metron series %s: %s", metron_series_id, exc)
+        return None
+    publisher = (data.get("publisher") or {}).get("name") or "Unknown"
+    name = data.get("name") or f"Series {metron_series_id}"
+    year = data.get("year_began")
+    s = Series(publisher=publisher, series_name=name, year=year, metron_series_id=metron_series_id)
+    _apply_metron_series_data(s, data)  # cover / total / status / cv_id (no extra call)
+    # Insert in a SAVEPOINT so a unique-constraint clash doesn't roll back the
+    # caller's in-progress reading-list transaction.
+    try:
+        with db.begin_nested():
+            db.add(s)
+            db.flush()
+        return s
+    except IntegrityError:
+        # A series with the same (publisher, name, year) already exists — reuse it.
+        s = (
+            db.query(Series)
+            .filter(Series.publisher == publisher, Series.series_name == name, Series.year == year)
+            .first()
+        )
+        if s and not s.metron_series_id:
+            s.metron_series_id = metron_series_id
+        return s
+
+
+def _reading_list_dict(rl: ReadingList, db: Session) -> dict:
+    items = db.query(ReadingListItem).filter(ReadingListItem.reading_list_id == rl.id).all()
+    owned = sum(1 for it in items if _item_status(it, db) == "owned")
+    return {
+        "id": rl.id,
+        "metron_id": rl.metron_id,
+        "name": rl.name,
+        "list_type": rl.list_type,
+        "attribution_source": rl.attribution_source,
+        "image_url": rl.image_url,
+        "average_rating": rl.average_rating,
+        "num_items": rl.num_items,
+        "monitored_issue_types": [t for t in (rl.monitored_issue_types or "").split(",") if t],
+        "owned": owned,
+        "total": len(items),
+        "synced_at": rl.synced_at.isoformat() if rl.synced_at else None,
+    }
+
+
+# series_id -> set of local issue numbers, memoised per request to avoid
+# re-scanning the same folder for every item in a list.
+def _item_status(it: ReadingListItem, db: Session, _local_cache: dict | None = None) -> str:
+    if not it.series_id:
+        return "untracked"
+    s = db.get(Series, it.series_id)
+    if not s:
+        return "untracked"
+    num = _norm_issue_num(it.number)
+    local = (_local_cache or {}).get(it.series_id)
+    if local is None:
+        local = _local_issue_numbers(s)
+        if _local_cache is not None:
+            _local_cache[it.series_id] = local
+    if num in local:
+        return "owned"
+    mon = (
+        db.query(MonitoredIssue)
+        .filter(MonitoredIssue.series_id == it.series_id,
+                MonitoredIssue.issue_number == num,
+                MonitoredIssue.issue_type == "regular")
+        .first()
+    )
+    return "monitored" if mon else "missing"
+
+
+@app.get("/api/reading-lists/search")
+def api_reading_list_search(
+    name: str = "", publisher: str = "", list_type: str = "",
+    attribution_source: str = "", average_rating__gte: str = "",
+):
+    """Search public Metron reading lists (cached). Filters mirror Metron's."""
+    from metadata.metron_client import RateLimitedError
+    from metadata.metron_reading_lists import search_reading_lists
+    key = (name, publisher, list_type, attribution_source, average_rating__gte)
+    now = time.time()
+    hit = _RL_SEARCH_CACHE.get(key)
+    if hit and now - hit[0] < _RL_SEARCH_TTL:
+        return {"results": hit[1]}
+    try:
+        results = search_reading_lists(
+            name=name, publisher=publisher, list_type=list_type,
+            attribution_source=attribution_source, average_rating__gte=average_rating__gte,
+        )
+    except RateLimitedError as exc:
+        raise HTTPException(status_code=429, detail=str(exc))
+    _RL_SEARCH_CACHE[key] = (now, results)
+    return {"results": results}
+
+
+@app.get("/api/reading-lists/metron/{metron_id}/preview")
+def api_reading_list_preview(metron_id: int, db: Session = Depends(get_db)):
+    """Detail + items annotated with what the app already tracks/owns."""
+    from metadata.metron_client import RateLimitedError
+    from metadata.metron_reading_lists import get_reading_list_detail, get_reading_list_items, parse_item
+    try:
+        detail = get_reading_list_detail(metron_id)
+        items = [parse_item(r) for r in get_reading_list_items(metron_id)]
+    except RateLimitedError as exc:
+        raise HTTPException(status_code=429, detail=str(exc))
+
+    tracked = {
+        s.metron_series_id for s in db.query(Series).filter(Series.metron_series_id.isnot(None)).all()
+    }
+    local_cache: dict[int, set] = {}
+    type_counts: dict[str, int] = {}
+    for it in items:
+        sid = it["metron_series_id"]
+        s = db.query(Series).filter(Series.metron_series_id == sid).first() if sid in tracked else None
+        owned = False
+        if s:
+            nums = local_cache.setdefault(s.id, _local_issue_numbers(s))
+            owned = _norm_issue_num(it["number"]) in nums
+        it["series_tracked"] = sid in tracked
+        it["owned"] = owned
+        type_counts[it["issue_type"] or ""] = type_counts.get(it["issue_type"] or "", 0) + 1
+
+    return {
+        "metron_id": metron_id,
+        "name": detail.get("name"),
+        "desc": detail.get("desc"),
+        "image_url": detail.get("image"),
+        "list_type": detail.get("list_type"),
+        "attribution_source": detail.get("attribution_source"),
+        "attribution_url": detail.get("attribution_url"),
+        "average_rating": detail.get("average_rating"),
+        "issue_type_counts": type_counts,
+        "items": items,
+    }
+
+
+class ReadingListAdd(BaseModel):
+    metron_id: int
+    issue_types: list[str] | None = None  # None/empty → monitor all
+
+
+@app.post("/api/reading-lists", status_code=201)
+def api_reading_list_add(payload: ReadingListAdd, db: Session = Depends(get_db)):
+    """Mirror a Metron reading list locally, create/find its series, and monitor
+    only the issues whose issue_type is selected (all if none given)."""
+    from metadata.metron_client import RateLimitedError
+    from metadata.metron_reading_lists import get_reading_list_detail, get_reading_list_items, parse_item
+    try:
+        detail = get_reading_list_detail(payload.metron_id)
+        parsed = [parse_item(r) for r in get_reading_list_items(payload.metron_id)]
+    except RateLimitedError as exc:
+        raise HTTPException(status_code=429, detail=str(exc))
+
+    # None → monitor all types; [] → monitor none (an explicit user choice).
+    monitor_all = payload.issue_types is None
+    selected = set(payload.issue_types or [])
+    rl = db.query(ReadingList).filter(ReadingList.metron_id == payload.metron_id).first()
+    if not rl:
+        rl = ReadingList(metron_id=payload.metron_id, name=detail.get("name") or "Reading List")
+        db.add(rl)
+    rl.name = detail.get("name") or rl.name
+    rl.slug = detail.get("slug")
+    rl.list_type = detail.get("list_type")
+    rl.attribution_source = detail.get("attribution_source")
+    rl.attribution_url = detail.get("attribution_url")
+    rl.image_url = detail.get("image")
+    rl.desc = detail.get("desc")
+    rl.average_rating = detail.get("average_rating")
+    rl.num_items = len(parsed)
+    rl.monitored_issue_types = ",".join(payload.issue_types or [])
+    rl.synced_at = datetime.now(timezone.utc)
+    db.flush()
+
+    # Replace items wholesale (cheap; lists are small).
+    db.query(ReadingListItem).filter(ReadingListItem.reading_list_id == rl.id).delete()
+
+    series_by_metron: dict[int, Series] = {}
+    for p in parsed:
+        sid_metron = p["metron_series_id"]
+        s = None
+        if sid_metron:
+            s = series_by_metron.get(sid_metron) or _create_or_get_series_from_metron(sid_metron, db)
+            if s:
+                series_by_metron[sid_metron] = s
+        item = ReadingListItem(
+            reading_list_id=rl.id,
+            order=p["order"],
+            issue_type=p["issue_type"],
+            metron_issue_id=p["metron_issue_id"],
+            metron_series_id=sid_metron,
+            series_name=p["series_name"],
+            series_year=(s.year if s else None),
+            number=p["number"],
+            cover_year=p["cover_year"],
+            cv_issue_id=p["cv_issue_id"],
+            cv_series_id=(s.comicvine_volume_id if s else None),
+            series_id=(s.id if s else None),
+        )
+        db.add(item)
+        # Monitor selected issue types (all when issue_types was None).
+        if s and (monitor_all or p["issue_type"] in selected):
+            num = _norm_issue_num(p["number"])
+            exists = (
+                db.query(MonitoredIssue)
+                .filter(MonitoredIssue.series_id == s.id,
+                        MonitoredIssue.issue_number == num,
+                        MonitoredIssue.issue_type == "regular")
+                .first()
+            )
+            if not exists:
+                db.add(MonitoredIssue(series_id=s.id, issue_number=num, issue_type="regular"))
+
+    db.commit()
+    db.refresh(rl)
+    return _reading_list_dict(rl, db)
+
+
+@app.get("/api/reading-lists")
+def api_reading_lists(db: Session = Depends(get_db)):
+    lists = db.query(ReadingList).order_by(ReadingList.added_at.desc()).all()
+    return {"reading_lists": [_reading_list_dict(rl, db) for rl in lists]}
+
+
+@app.get("/api/reading-lists/{rl_id}")
+def api_reading_list_detail(rl_id: int, db: Session = Depends(get_db)):
+    rl = db.get(ReadingList, rl_id)
+    if not rl:
+        raise HTTPException(status_code=404)
+    items = (
+        db.query(ReadingListItem)
+        .filter(ReadingListItem.reading_list_id == rl.id)
+        .order_by(ReadingListItem.order)
+        .all()
+    )
+    local_cache: dict[int, set] = {}
+    return {
+        **_reading_list_dict(rl, db),
+        "items": [
+            {
+                "order": it.order,
+                "issue_type": it.issue_type,
+                "series_name": it.series_name,
+                "number": it.number,
+                "cover_year": it.cover_year,
+                "series_id": it.series_id,
+                "status": _item_status(it, db, local_cache),
+            }
+            for it in items
+        ],
+    }
+
+
+@app.post("/api/reading-lists/{rl_id}/resync")
+def api_reading_list_resync(rl_id: int, db: Session = Depends(get_db)):
+    rl = db.get(ReadingList, rl_id)
+    if not rl:
+        raise HTTPException(status_code=404)
+    types = [t for t in (rl.monitored_issue_types or "").split(",") if t]
+    return api_reading_list_add(ReadingListAdd(metron_id=rl.metron_id, issue_types=types or None), db)
+
+
+@app.delete("/api/reading-lists/{rl_id}")
+def api_reading_list_delete(rl_id: int, db: Session = Depends(get_db)):
+    rl = db.get(ReadingList, rl_id)
+    if not rl:
+        raise HTTPException(status_code=404)
+    db.query(ReadingListItem).filter(ReadingListItem.reading_list_id == rl.id).delete()
+    db.delete(rl)  # series, files and monitoring are intentionally left untouched
+    db.commit()
+    return {"ok": True}
+
+
+@app.get("/api/reading-lists/{rl_id}/cbl")
+def api_reading_list_cbl(rl_id: int, db: Session = Depends(get_db)):
+    from web.cbl import build_cbl
+    rl = db.get(ReadingList, rl_id)
+    if not rl:
+        raise HTTPException(status_code=404)
+    items = (
+        db.query(ReadingListItem)
+        .filter(ReadingListItem.reading_list_id == rl.id)
+        .order_by(ReadingListItem.order)
+        .all()
+    )
+    xml = build_cbl(rl.name, items)
+    safe = re.sub(r'[\\/:*?"<>|]', "-", rl.name)
+    return Response(
+        content=xml,
+        media_type="application/xml",
+        headers={"Content-Disposition": f'attachment; filename="{safe}.cbl"'},
+    )
+
+
+@app.get("/api/komga/status")
+def api_komga_status():
+    from web import komga_client
+    return {"configured": komga_client.is_configured()}
+
+
+@app.post("/api/reading-lists/{rl_id}/push-komga")
+def api_reading_list_push_komga(rl_id: int, db: Session = Depends(get_db)):
+    from web import komga_client
+    if not komga_client.is_configured():
+        raise HTTPException(status_code=400, detail="Komga not configured (set KOMGA_URL + KOMGA_API_KEY).")
+    rl = db.get(ReadingList, rl_id)
+    if not rl:
+        raise HTTPException(status_code=404)
+    items = (
+        db.query(ReadingListItem)
+        .filter(ReadingListItem.reading_list_id == rl.id)
+        .order_by(ReadingListItem.order)
+        .all()
+    )
+    entries = [(it.series_name or "", it.number or "") for it in items]
+    try:
+        result = komga_client.push_reading_list(rl.name, "Imported from Metron reading list", entries)
+    except requests.RequestException as exc:
+        raise HTTPException(status_code=502, detail=f"Komga request failed: {exc}")
+    return result
 
 
 # ── React SPA (the UI) ───────────────────────────────────────────────────────

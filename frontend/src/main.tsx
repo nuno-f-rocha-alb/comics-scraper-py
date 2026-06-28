@@ -14,6 +14,8 @@ import { Scheduler } from "@/pages/Scheduler"
 import { Releases } from "@/pages/Releases"
 import { Calendar } from "@/pages/Calendar"
 import { Logs } from "@/pages/Logs"
+import { ReadingLists } from "@/pages/ReadingLists"
+import { ReadingListDetail } from "@/pages/ReadingListDetail"
 import { ComingSoon } from "@/pages/ComingSoon"
 import { Toaster } from "@/components/ui/sonner"
 import { ConfirmProvider } from "@/components/confirm"
@@ -39,6 +41,8 @@ createRoot(document.getElementById("root")!).render(
             <Route path="/downloads" element={<Downloads />} />
             <Route path="/scheduler" element={<Scheduler />} />
             <Route path="/library" element={<Library />} />
+            <Route path="/reading-lists" element={<ReadingLists />} />
+            <Route path="/reading-lists/:id" element={<ReadingListDetail />} />
             <Route path="/logs" element={<Logs />} />
             <Route path="*" element={<ComingSoon title="Not Found" />} />
           </Route>

@@ -358,3 +358,84 @@ export const postAction = (url: string) =>
   fetch(url, { method: "POST" }).then((r) => {
     if (!r.ok) throw new Error(`${r.status} ${r.statusText}`)
   })
+
+// ── Reading lists ───────────────────────────────────────────────────────────
+export interface RLSearchResult {
+  id: number
+  name: string
+  list_type: string | null
+  attribution_source: string | null
+  average_rating: number | null
+  image: string | null
+}
+export interface RLPreviewItem {
+  order: number
+  issue_type: string
+  metron_series_id: number | null
+  series_name: string | null
+  number: string | null
+  cover_year: number | null
+  series_tracked: boolean
+  owned: boolean
+}
+export interface RLPreview {
+  metron_id: number
+  name: string
+  desc: string | null
+  image_url: string | null
+  list_type: string | null
+  attribution_source: string | null
+  average_rating: number | null
+  issue_type_counts: Record<string, number>
+  items: RLPreviewItem[]
+}
+export interface ReadingListCard {
+  id: number
+  metron_id: number
+  name: string
+  list_type: string | null
+  attribution_source: string | null
+  image_url: string | null
+  average_rating: number | null
+  num_items: number
+  monitored_issue_types: string[]
+  owned: number
+  total: number
+  synced_at: string | null
+}
+export type RLItemStatus = "owned" | "monitored" | "missing" | "untracked"
+export interface RLItem {
+  order: number
+  issue_type: string
+  series_name: string | null
+  number: string | null
+  cover_year: number | null
+  series_id: number | null
+  status: RLItemStatus
+}
+export interface ReadingListDetail extends ReadingListCard {
+  items: RLItem[]
+}
+
+export const searchReadingLists = (params: Record<string, string>) => {
+  const q = new URLSearchParams(Object.entries(params).filter(([, v]) => v)).toString()
+  return http<{ results: RLSearchResult[] }>(`/api/reading-lists/search?${q}`)
+}
+export const previewReadingList = (metronId: number) =>
+  http<RLPreview>(`/api/reading-lists/metron/${metronId}/preview`)
+export const addReadingList = (metron_id: number, issue_types: string[] | null) =>
+  postJSON<ReadingListCard>("/api/reading-lists", { metron_id, issue_types })
+export const getReadingLists = () =>
+  http<{ reading_lists: ReadingListCard[] }>("/api/reading-lists")
+export const getReadingListDetail = (id: number) =>
+  http<ReadingListDetail>(`/api/reading-lists/${id}`)
+export const resyncReadingList = (id: number) =>
+  postJSON<ReadingListCard>(`/api/reading-lists/${id}/resync`, {})
+export const deleteReadingList = (id: number) =>
+  http<{ ok: boolean }>(`/api/reading-lists/${id}`, { method: "DELETE" })
+export const cblDownloadUrl = (id: number) => `/api/reading-lists/${id}/cbl`
+export const getKomgaStatus = () => http<{ configured: boolean }>("/api/komga/status")
+export const pushReadingListToKomga = (id: number) =>
+  postJSON<{ created: boolean; matched: number; unmatched: string[]; readlist_id: string | null }>(
+    `/api/reading-lists/${id}/push-komga`, {},
+  )
