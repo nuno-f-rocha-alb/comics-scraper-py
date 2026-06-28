@@ -51,6 +51,20 @@ def test_poll_enqueues_new_match(db, monkeypatch):
     assert calls == [job.id]
 
 
+def test_poll_decimal_issue_not_matched_to_integer(db, monkeypatch):
+    # Selective monitoring of issue 1 must NOT swallow issue 1.5 (decimal distinct).
+    s = _mk(db, metron_series_id=1)
+    db.add(MonitoredIssue(series_id=s.id, issue_number="1", issue_type="regular"))
+    db.commit()
+    _feed(monkeypatch, [_fe("Spawn", "1.5")])
+    _spy_enqueue(monkeypatch)
+
+    res = poll_feed_and_enqueue()
+
+    assert res["enqueued"] == 0
+    assert db.query(DownloadJob).count() == 0
+
+
 def test_poll_skips_when_local_file_exists(db, monkeypatch, comic_file):
     s = _mk(db)
     comic_file(s, "Spawn #350 (2026).cbz")
