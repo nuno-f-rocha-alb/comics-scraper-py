@@ -105,13 +105,13 @@ def _is_series_ended(s: Series) -> bool:
     return False
 
 
-def _monitored_numbers(s: Series, db: Session) -> set[str] | None:
-    """Return the set of issue numbers the user is monitoring, or None if the
-    user has no explicit selection (i.e., everything in [issue_min, total_issues]
-    is implicitly monitored)."""
+def _monitored_numbers(s: Series, db: Session, issue_type: str = "regular") -> set[str] | None:
+    """Return the set of issue numbers the user is monitoring for the given
+    issue_type, or None if the user has no explicit selection for it (regular:
+    everything in [issue_min, total_issues] is implicitly monitored)."""
     rows = (
         db.query(MonitoredIssue)
-        .filter(MonitoredIssue.series_id == s.id, MonitoredIssue.issue_type == "regular")
+        .filter(MonitoredIssue.series_id == s.id, MonitoredIssue.issue_type == issue_type)
         .all()
     )
     if not rows:
@@ -120,7 +120,13 @@ def _monitored_numbers(s: Series, db: Session) -> set[str] | None:
 
 
 def _has_all_monitored_files(s: Series, db: Session) -> bool:
-    """True if every issue the user is monitoring has a local file."""
+    """True if every issue the user is monitoring has a local file (both regular
+    and annual issue types)."""
+    # Annuals have no implicit set: only explicitly monitored annuals count.
+    annual = _monitored_numbers(s, db, "annual")
+    if annual is not None and not annual.issubset(_local_annual_issue_numbers(s)):
+        return False
+
     local = _local_issue_numbers(s)
     explicit = _monitored_numbers(s, db)
     if explicit is not None:
