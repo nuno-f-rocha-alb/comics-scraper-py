@@ -2054,7 +2054,7 @@ def _match_feed_entries(entries, db: Session) -> list[dict]:
     pub_date desc, each item describing whether we already have it locally
     or have a job in flight.
     """
-    from util import normalize_title
+    from util import normalize_title, norm_issue_number
 
     series_rows = db.query(Series).filter(Series.enabled == True).all()  # noqa: E712
     # Index by normalized name for O(1) match.
@@ -2078,11 +2078,7 @@ def _match_feed_entries(entries, db: Session) -> list[dict]:
         .filter(DownloadJob.status.in_(["queued", "downloading"]))
         .all()
     ):
-        try:
-            n = str(int(float(j.issue_number)))
-        except (ValueError, TypeError):
-            n = j.issue_number or ""
-        in_flight.add((j.series_id, n))
+        in_flight.add((j.series_id, norm_issue_number(j.issue_number)))
 
     results: list[dict] = []
     for e in entries:
@@ -2092,10 +2088,7 @@ def _match_feed_entries(entries, db: Session) -> list[dict]:
         s = by_norm.get(norm)
         if not s:
             continue
-        try:
-            num_norm = str(int(float(e.issue_number)))
-        except (ValueError, TypeError):
-            num_norm = e.issue_number or ""
+        num_norm = norm_issue_number(e.issue_number)
 
         if s.id not in local_cache:
             local_cache[s.id] = _local_issue_numbers(s)

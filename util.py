@@ -2,8 +2,21 @@ import shutil
 import zipfile
 import rarfile
 import re
+from decimal import Decimal, InvalidOperation
 from urllib.parse import urlparse
 from config import *
+
+
+def norm_issue_number(n) -> str:
+    """Normalise an issue number for comparison: '001' == '1' == '1.0', but
+    '1.5' stays distinct from '1' (decimal issues must not collide). Use on the
+    RSS-matching path where feed/monitored numbers are compared."""
+    raw = "" if n is None else str(n).strip()  # keep "0" (don't let falsy 0 → "")
+    try:
+        value = Decimal(raw)
+    except (InvalidOperation, ValueError, TypeError):
+        return raw
+    return str(int(value)) if value == value.to_integral_value() else format(value.normalize(), "f")
 
 
 def staging_dir():

@@ -10,14 +10,9 @@ download is not retried every tick (no retry-storm).
 """
 import logging
 
+from util import norm_issue_number as _norm  # decimal-safe ('1.5' ≠ '1')
+
 log = logging.getLogger(__name__)
-
-
-def _norm(n: str) -> str:
-    try:
-        return str(int(float(n)))
-    except (ValueError, TypeError):
-        return n or ""
 
 
 def _has_existing_job(db, series_id: int, num: str) -> bool:
