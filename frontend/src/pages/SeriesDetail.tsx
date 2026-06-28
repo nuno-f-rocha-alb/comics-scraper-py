@@ -202,6 +202,10 @@ export function SeriesDetail() {
           <p className="m-3 rounded-md bg-status-missing-unmonitored/15 p-3 text-sm">
             Metron rate limit hit — retrying in {d.rate_limited}s…
           </p>
+        ) : issues.isError ? (
+          <p className="m-3 rounded-md bg-destructive/15 p-3 text-sm text-destructive">
+            Failed to load issues.
+          </p>
         ) : !d?.has_metron ? (
           <p className="m-3 rounded-md bg-muted p-3 text-sm text-muted-foreground">
             No Metron ID set — issue list unavailable.
