@@ -32,14 +32,17 @@ def _norm(n) -> str:
     return str(int(value)) if value == value.to_integral_value() else format(value.normalize(), "f")
 
 
-def compute_coverage(items: list[dict], owned_map: dict[int, set]) -> tuple[int, int]:
-    """owned = items whose series is tracked and whose number is owned locally."""
+def compute_coverage(items: list[dict], owned_map: dict[tuple, set]) -> tuple[int, int]:
+    """owned = items whose series (matched by name+year — Metron's reading-list
+    payload has no series id) is tracked and whose number is owned locally.
+    owned_map: {(normalized series_name, year): {local issue numbers}}."""
     total = len(items)
-    owned = sum(
-        1 for it in items
-        if it.get("metron_series_id") in owned_map
-        and _norm(it.get("number")) in owned_map[it["metron_series_id"]]
-    )
+    owned = 0
+    for it in items:
+        key = ((it.get("series_name") or "").strip().lower(), it.get("series_year"))
+        nums = owned_map.get(key)
+        if nums and _norm(it.get("number")) in nums:
+            owned += 1
     return owned, total
 
 
@@ -80,10 +83,10 @@ def run_scan() -> bool:
             min_rating = _get_setting(db, "rl_suggest_min_rating", "3")
             max_lists = int(_get_setting(db, "rl_suggest_max", "200"))
 
-            owned_map: dict[int, set] = {}
+            owned_map: dict[tuple, set] = {}
             publishers: set[str] = set()
-            for s in db.query(Series).filter(Series.metron_series_id.isnot(None)).all():
-                owned_map[s.metron_series_id] = _local_issue_numbers(s)
+            for s in db.query(Series).all():
+                owned_map[((s.series_name or "").strip().lower(), s.year)] = _local_issue_numbers(s)
                 if s.publisher:
                     publishers.add(s.publisher)
             already_added = {r.metron_id for r in db.query(ReadingList.metron_id).all()}

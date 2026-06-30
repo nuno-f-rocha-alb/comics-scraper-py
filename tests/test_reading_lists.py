@@ -12,17 +12,19 @@ from web.reading_list_suggest import compute_coverage
 
 # ── parsing ──────────────────────────────────────────────────────────────────
 def test_parse_item_maps_fields():
+    # Real Metron /items/ shape: nested series has NO id, only name/volume/year_began.
     raw = {
         "order": 3, "issue_type": "Core Issue",
         "issue": {
             "id": 5432, "number": "1", "cover_date": "2015-07-01", "store_date": "2015-05-06",
-            "cv_id": 123456, "series": {"id": 789, "name": "Secret Wars", "volume": 1},
+            "cv_id": 123456, "series": {"name": "Secret Wars", "volume": 1, "year_began": 2015},
         },
     }
     p = parse_item(raw)
     assert p["metron_issue_id"] == 5432
-    assert p["metron_series_id"] == 789
     assert p["series_name"] == "Secret Wars"
+    assert p["series_year"] == 2015
+    assert p["series_volume"] == 1
     assert p["number"] == "1"
     assert p["cover_year"] == 2015
     assert p["cv_issue_id"] == 123456
@@ -38,47 +40,69 @@ def _series_detail(sid, name, pub="Image Comics", year=2024):
     }
 
 
+def _item(order, itype, iid, num, name, year, cv):
+    return {"order": order, "issue_type": itype,
+            "issue": {"id": iid, "number": num, "cover_date": f"{year}-01-01", "cv_id": cv,
+                      "series": {"name": name, "year_began": year, "volume": 1}}}
+
+
+def _search(sid, year, volume=1):
+    return {"results": [{"id": sid, "year_began": year, "volume": volume, "series": f"S ({year})"}]}
+
+
 def test_add_creates_series_and_monitors_only_core(client, db, metron_get):
     detail = {"name": "My List", "list_type": "Event", "attribution_source": "Comic Book Herald"}
     items = {"next": None, "results": [
-        {"order": 1, "issue_type": "Core Issue",
-         "issue": {"id": 11, "number": "1", "cover_date": "2024-01-01", "cv_id": 901,
-                   "series": {"id": 789, "name": "Absolute Batman"}}},
-        {"order": 2, "issue_type": "Tie-In",
-         "issue": {"id": 12, "number": "1", "cover_date": "2024-02-01", "cv_id": 902,
-                   "series": {"id": 790, "name": "Absolute Flash"}}},
-        {"order": 3, "issue_type": "Core Issue",
-         "issue": {"id": 13, "number": "2", "cover_date": "2024-03-01", "cv_id": 903,
-                   "series": {"id": 789, "name": "Absolute Batman"}}},
+        _item(1, "Core Issue", 11, "1", "Absolute Batman", 2024, 901),
+        _item(2, "Tie-In", 12, "1", "Absolute Flash", 2025, 902),
+        _item(3, "Core Issue", 13, "2", "Absolute Batman", 2024, 903),
     ]}
-    # call order: detail, items, series 789 detail, series 790 detail
-    metron_get([detail, items, _series_detail(789, "Absolute Batman"), _series_detail(790, "Absolute Flash")])
+    # No local series exist → each distinct series resolves via search→detail.
+    # Call order: rl detail, items, Batman search, Batman detail, Flash search, Flash detail.
+    metron_get([
+        detail, items,
+        _search(789, 2024), _series_detail(789, "Absolute Batman", pub="DC", year=2024),
+        _search(790, 2025), _series_detail(790, "Absolute Flash", pub="DC", year=2025),
+    ])
 
     r = client.post("/api/reading-lists", json={"metron_id": 42, "issue_types": ["Core Issue"]})
     assert r.status_code == 201, r.text
-    body = r.json()
-    assert body["total"] == 3
+    assert r.json()["total"] == 3
 
-    # both series created
     names = {s.series_name for s in db.query(Series).all()}
     assert {"Absolute Batman", "Absolute Flash"} <= names
     batman = db.query(Series).filter(Series.metron_series_id == 789).one()
-
-    # only Core issues of Batman are monitored; the Tie-In (Flash #1) is NOT
     mon = {(m.series_id, m.issue_number) for m in db.query(MonitoredIssue).all()}
     assert (batman.id, "1") in mon and (batman.id, "2") in mon
     flash = db.query(Series).filter(Series.metron_series_id == 790).one()
-    assert not any(sid == flash.id for sid, _ in mon)
+    assert not any(sid == flash.id for sid, _ in mon)  # tie-in not monitored
+
+
+def test_add_links_existing_local_series_without_metron(client, db, metron_get, comic_file):
+    # The user already tracks the series AND owns the file → linked by name+year
+    # with NO Metron series call, and the item reads as owned.
+    s = Series(publisher="DC", series_name="Aquaman", year=2024)
+    db.add(s); db.commit()
+    comic_file(s, "Aquaman #011 (2024).cbz")
+
+    detail = {"name": "DC List"}
+    items = {"next": None, "results": [_item(1, "Core Issue", 50, "11", "Aquaman", 2024, 700)]}
+    # Only the list detail + items are fetched — no series search/detail needed.
+    metron_get([detail, items])
+
+    r = client.post("/api/reading-lists", json={"metron_id": 9, "issue_types": None})
+    assert r.status_code == 201
+    body = r.json()
+    assert body["owned"] == 1 and body["total"] == 1  # detected as owned via name+year
+
+    detail_r = client.get(f"/api/reading-lists/{body['id']}").json()
+    assert detail_r["items"][0]["status"] == "owned"
 
 
 def test_add_monitors_all_when_no_types(client, db, metron_get):
     detail = {"name": "All List"}
-    items = {"next": None, "results": [
-        {"order": 1, "issue_type": "Tie-In",
-         "issue": {"id": 21, "number": "1", "cover_date": "2024-01-01",
-                   "series": {"id": 555, "name": "Some Series"}}},
-    ]}
-    metron_get([detail, items, _series_detail(555, "Some Series")])
+    items = {"next": None, "results": [_item(1, "Tie-In", 21, "1", "Some Series", 2024, 600)]}
+    metron_get([detail, items, _search(555, 2024), _series_detail(555, "Some Series", year=2024)])
     r = client.post("/api/reading-lists", json={"metron_id": 7, "issue_types": None})
     assert r.status_code == 201
     assert db.query(MonitoredIssue).count() == 1  # tie-in monitored because no filter
@@ -151,12 +175,13 @@ class _FakeSession:
 
 # ── Phase B: suggestions ─────────────────────────────────────────────────────
 def test_compute_coverage():
-    owned = {789: {"1", "2"}, 790: {"5"}}  # series 789 has #1,#2 owned; 790 has #5
+    # owned_map keyed by (normalized series_name, year) — Metron items have no series id.
+    owned = {("saga", 2012): {"1", "2"}, ("daredevil", 2022): {"5"}}
     items = [
-        {"metron_series_id": 789, "number": "1"},   # owned
-        {"metron_series_id": 789, "number": "3"},    # tracked but not owned
-        {"metron_series_id": 790, "number": "5"},    # owned
-        {"metron_series_id": 999, "number": "1"},    # untracked series
+        {"series_name": "Saga", "series_year": 2012, "number": "1"},      # owned
+        {"series_name": "Saga", "series_year": 2012, "number": "3"},       # tracked, not owned
+        {"series_name": "Daredevil", "series_year": 2022, "number": "5"},  # owned
+        {"series_name": "Unknown", "series_year": 1999, "number": "1"},    # untracked
     ]
     assert compute_coverage(items, owned) == (2, 4)
 
