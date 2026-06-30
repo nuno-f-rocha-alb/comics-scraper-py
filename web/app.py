@@ -2569,6 +2569,11 @@ def api_reading_list_add(payload: ReadingListAdd, db: Session = Depends(get_db))
     # The Metron items payload has no series id, so link by name + year (matches
     # already-tracked series with no Metron call; resolves/creates the rest).
     series_cache: dict[tuple, Series | None] = {}
+    # Track monitors added in THIS loop. The session is autoflush=False, so the
+    # dedup query below can't see a pending row from a prior iteration — two list
+    # items for the same series+number (e.g. multiple printings) would otherwise
+    # both insert and collide on the unique constraint at commit.
+    monitored_seen: set[tuple[int, str]] = set()
     for p in parsed:
         key = ((p["series_name"] or "").strip().lower(), p["series_year"], p.get("series_volume"))
         if key not in series_cache:
@@ -2594,15 +2599,18 @@ def api_reading_list_add(payload: ReadingListAdd, db: Session = Depends(get_db))
         # Monitor selected issue types (all when issue_types was None).
         if s and (monitor_all or p["issue_type"] in selected):
             num = _norm_issue_num(p["number"])
-            exists = (
-                db.query(MonitoredIssue)
-                .filter(MonitoredIssue.series_id == s.id,
-                        MonitoredIssue.issue_number == num,
-                        MonitoredIssue.issue_type == "regular")
-                .first()
-            )
-            if not exists:
-                db.add(MonitoredIssue(series_id=s.id, issue_number=num, issue_type="regular"))
+            mkey = (s.id, num)
+            if mkey not in monitored_seen:
+                exists = (
+                    db.query(MonitoredIssue)
+                    .filter(MonitoredIssue.series_id == s.id,
+                            MonitoredIssue.issue_number == num,
+                            MonitoredIssue.issue_type == "regular")
+                    .first()
+                )
+                if not exists:
+                    db.add(MonitoredIssue(series_id=s.id, issue_number=num, issue_type="regular"))
+                monitored_seen.add(mkey)
 
     db.commit()
     db.refresh(rl)

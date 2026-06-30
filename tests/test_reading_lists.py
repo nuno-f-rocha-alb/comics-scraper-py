@@ -108,6 +108,25 @@ def test_add_monitors_all_when_no_types(client, db, metron_get):
     assert db.query(MonitoredIssue).count() == 1  # tie-in monitored because no filter
 
 
+def test_add_dedupes_same_series_number_no_unique_violation(client, db, metron_get):
+    # Two list items for the SAME series + number (e.g. multiple printings) must
+    # produce one MonitoredIssue, not collide on the unique constraint at commit
+    # (regression: session is autoflush=False, so the dedup query couldn't see
+    # the prior iteration's pending row).
+    detail = {"name": "Dupe List"}
+    items = {"next": None, "results": [
+        _item(1, "Core Issue", 11, "1", "Book of Butcher", 2024, 901),
+        _item(2, "Core Issue", 12, "1", "Book of Butcher", 2024, 902),
+    ]}
+    # Same series resolves once (series_cache) → single search + detail.
+    metron_get([detail, items, _search(71, 2024), _series_detail(71, "Book of Butcher", year=2024)])
+
+    r = client.post("/api/reading-lists", json={"metron_id": 99, "issue_types": ["Core Issue"]})
+    assert r.status_code == 201, r.text
+    assert r.json()["total"] == 2
+    assert db.query(MonitoredIssue).count() == 1
+
+
 def test_monitor_none_survives_resync(client, db, metron_get):
     # issue_types=[] (monitor none) must not degrade to "all" on re-sync.
     s = Series(publisher="DC", series_name="Aquaman", year=2024)
