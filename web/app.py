@@ -702,8 +702,11 @@ def _metron_search_json(name: str, db: Session) -> list[dict]:
 @app.get("/api/metron/results")
 def api_metron_results(name: str = "", db: Session = Depends(get_db)):
     """JSON Metron search backing the React add/edit forms."""
+    from metadata.metron_client import RateLimitedError
     try:
         return {"results": _metron_search_json(name, db)}
+    except RateLimitedError as exc:
+        raise HTTPException(status_code=429, detail=str(exc))
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Metron search error: {exc}")
 
