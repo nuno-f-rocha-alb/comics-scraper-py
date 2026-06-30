@@ -16,6 +16,14 @@ const POLL_MS = 2000
 
 const LINE_OPTIONS = [100, 200, 500, 1000]
 const LEVELS = ["", "ERROR", "WARNING", "INFO"]
+// value → label; value is the backend category key (must match _LOG_CATEGORIES in web/app.py)
+const CATEGORIES: [string, string][] = [
+  ["", "All sources"],
+  ["metron", "Metron"],
+  ["rss", "RSS"],
+  ["komga", "Komga"],
+  ["scraper", "Scraper"],
+]
 
 export function Logs() {
   const qc = useQueryClient()
@@ -25,6 +33,7 @@ export function Logs() {
   const [filename, setFilename] = useState("")
   const [lines, setLines] = useState(200)
   const [level, setLevel] = useState("")
+  const [category, setCategory] = useState("")
   const [retention, setRetention] = useState(7)
 
   const [paused, setPaused] = useState(false)
@@ -45,8 +54,8 @@ export function Logs() {
   }, [info.data])
 
   const stream = useQuery({
-    queryKey: ["log-stream", filename, lines, level],
-    queryFn: () => getLogStream(filename, lines, level),
+    queryKey: ["log-stream", filename, lines, level, category],
+    queryFn: () => getLogStream(filename, lines, level, category),
     enabled: !!filename,
     refetchInterval: paused ? false : POLL_MS,
   })
@@ -60,7 +69,14 @@ export function Logs() {
 
   const files = info.data?.files ?? []
 
-  const refreshFiles = () => qc.invalidateQueries({ queryKey: ["logs-info"] })
+  // Refetch the file list and reseed the active file if it's gone (deleted/cleaned up),
+  // otherwise the stream keeps polling a missing file.
+  const refreshFiles = async () => {
+    const next = await qc.fetchQuery({ queryKey: ["logs-info"], queryFn: getLogs })
+    setFilename((cur) =>
+      next.files.some((f) => f.name === cur) ? cur : next.current_name || next.files[0]?.name || "",
+    )
+  }
 
   const onDelete = async (name: string) => {
     if (!(await confirm({ title: `Delete ${name}?`, confirmText: "Delete", destructive: true }))) return
@@ -163,6 +179,18 @@ export function Logs() {
                   ))}
                 </select>
               </div>
+              <select
+                aria-label="Filter by source"
+                className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm"
+                value={category}
+                onChange={(e) => setCategory(e.target.value)}
+              >
+                {CATEGORIES.map(([val, label]) => (
+                  <option key={val} value={val}>
+                    {label}
+                  </option>
+                ))}
+              </select>
             </div>
           </Card>
 
