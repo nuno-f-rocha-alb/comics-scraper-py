@@ -342,9 +342,9 @@ export interface LogsInfo {
 }
 export const getLogs = () => http<LogsInfo>("/api/logs")
 export const getLogFiles = () => http<{ files: LogFile[] }>("/api/logs/files")
-export const getLogStream = (filename: string, lines: number, level: string) =>
+export const getLogStream = (filename: string, lines: number, level: string, category = "") =>
   http<{ filename: string; lines: LogLine[] }>(
-    `/api/logs/stream?filename=${encodeURIComponent(filename)}&lines=${lines}&level=${encodeURIComponent(level)}`,
+    `/api/logs/stream?filename=${encodeURIComponent(filename)}&lines=${lines}&level=${encodeURIComponent(level)}&category=${encodeURIComponent(category)}`,
   )
 export const deleteLog = (filename: string) =>
   http<{ deleted: number }>(`/api/logs/${encodeURIComponent(filename)}`, { method: "DELETE" })

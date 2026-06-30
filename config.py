@@ -10,7 +10,7 @@ LOG_FOLDER = f"logs/"
 LOG_FILENAME = "comic_downloader.log"
 os.makedirs(LOG_FOLDER, exist_ok=True)
 
-_LOG_FMT = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+_LOG_FMT = logging.Formatter('%(asctime)s - %(levelname)s - %(name)s - %(message)s')
 _root = logging.getLogger()
 _LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 _root.setLevel(getattr(logging, _LOG_LEVEL, logging.INFO))

@@ -2211,6 +2211,18 @@ def _classify_log_line(line: str) -> str:
     return "info"
 
 
+# Map a viewer category → substrings matched (case-insensitive) against the whole
+# line (logger name + message). Named loggers match by name; root-logger scraper
+# lines match by message keyword. ponytail: a scrape that tags via Metron shows in
+# both metron + scraper — fine for a viewer; switch to logger-name-only if it bleeds.
+_LOG_CATEGORIES: dict[str, tuple[str, ...]] = {
+    "metron": ("metron",),
+    "rss": ("rss_monitor", "rss_feed", "rss", "feed", "new issue"),
+    "komga": ("komga",),
+    "scraper": ("download", "getcomics", "cbz", "cbr", "tagged", "scrap"),
+}
+
+
 class LogSettings(BaseModel):
     log_retention_days: int
 
@@ -2234,7 +2246,7 @@ def api_logs_files():
 
 
 @app.get("/api/logs/stream")
-def api_logs_stream(filename: str = "", lines: int = _LOG_LINES_DEFAULT, level: str = ""):
+def api_logs_stream(filename: str = "", lines: int = _LOG_LINES_DEFAULT, level: str = "", category: str = ""):
     lines = min(max(1, lines), 10000)  # cap so a client can't request unbounded tail into memory
     path = os.path.join(LOG_DIR, os.path.basename(filename)) if filename else _current_log_path()
     if not path or not os.path.isfile(path):
@@ -2242,6 +2254,9 @@ def api_logs_stream(filename: str = "", lines: int = _LOG_LINES_DEFAULT, level: 
     raw = _read_tail(path, lines)
     if level:
         raw = [l for l in raw if f" - {level.upper()} - " in l]
+    keywords = _LOG_CATEGORIES.get(category.lower())
+    if keywords:
+        raw = [l for l in raw if any(k in l.lower() for k in keywords)]
     return {
         "filename": os.path.basename(path),
         "lines": [{"text": l, "cls": _classify_log_line(l)} for l in raw],
