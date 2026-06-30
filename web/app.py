@@ -2300,6 +2300,27 @@ def _norm_issue_num(n) -> str:
 _RL_SEARCH_CACHE: dict[tuple, tuple[float, list]] = {}
 _RL_SEARCH_TTL = 3600  # seconds
 
+# monitored_issue_types storage: "" = monitor all (also the legacy default),
+# a sentinel = monitor none, else a CSV of issue_types. The sentinel keeps the
+# all-vs-none distinction across a re-sync round-trip (can't be a real type).
+_RL_MONITOR_NONE = "\x00none"
+
+
+def _serialize_monitor_types(types: list[str] | None) -> str:
+    if types is None:
+        return ""              # monitor all
+    if not types:
+        return _RL_MONITOR_NONE  # monitor none (explicit empty choice)
+    return ",".join(types)
+
+
+def _deserialize_monitor_types(value: str | None) -> list[str] | None:
+    if value == _RL_MONITOR_NONE:
+        return []              # monitor none
+    if not value:
+        return None            # monitor all (incl. legacy "" rows)
+    return [t for t in value.split(",") if t]
+
 
 def _create_or_get_series_from_metron(metron_series_id: int, db: Session) -> Series | None:
     """Find a local Series by metron_series_id, or create it from Metron detail."""
@@ -2393,7 +2414,7 @@ def _reading_list_dict(rl: ReadingList, db: Session) -> dict:
         "image_url": rl.image_url,
         "average_rating": rl.average_rating,
         "num_items": rl.num_items,
-        "monitored_issue_types": [t for t in (rl.monitored_issue_types or "").split(",") if t],
+        "monitored_issue_types": _deserialize_monitor_types(rl.monitored_issue_types),
         "owned": owned,
         "total": len(items),
         "synced_at": rl.synced_at.isoformat() if rl.synced_at else None,
@@ -2489,7 +2510,7 @@ def api_reading_list_preview(metron_id: int, db: Session = Depends(get_db)):
 
 class ReadingListAdd(BaseModel):
     metron_id: int
-    issue_types: list[str] | None = None  # None/empty → monitor all
+    issue_types: list[str] | None = None  # None → monitor all; [] → monitor none; [..] → only those
 
 
 @app.post("/api/reading-lists", status_code=201)
@@ -2520,7 +2541,7 @@ def api_reading_list_add(payload: ReadingListAdd, db: Session = Depends(get_db))
     rl.desc = detail.get("desc")
     rl.average_rating = detail.get("average_rating")
     rl.num_items = len(parsed)
-    rl.monitored_issue_types = ",".join(payload.issue_types or [])
+    rl.monitored_issue_types = _serialize_monitor_types(payload.issue_types)
     rl.synced_at = datetime.now(timezone.utc)
     db.flush()
 
@@ -2610,8 +2631,11 @@ def api_reading_list_resync(rl_id: int, db: Session = Depends(get_db)):
     rl = db.get(ReadingList, rl_id)
     if not rl:
         raise HTTPException(status_code=404)
-    types = [t for t in (rl.monitored_issue_types or "").split(",") if t]
-    return api_reading_list_add(ReadingListAdd(metron_id=rl.metron_id, issue_types=types or None), db)
+    # Preserve the all (None) vs none ([]) vs specific distinction across resync.
+    return api_reading_list_add(
+        ReadingListAdd(metron_id=rl.metron_id, issue_types=_deserialize_monitor_types(rl.monitored_issue_types)),
+        db,
+    )
 
 
 @app.delete("/api/reading-lists/{rl_id}")

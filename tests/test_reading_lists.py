@@ -108,6 +108,25 @@ def test_add_monitors_all_when_no_types(client, db, metron_get):
     assert db.query(MonitoredIssue).count() == 1  # tie-in monitored because no filter
 
 
+def test_monitor_none_survives_resync(client, db, metron_get):
+    # issue_types=[] (monitor none) must not degrade to "all" on re-sync.
+    s = Series(publisher="DC", series_name="Aquaman", year=2024)
+    db.add(s); db.commit()
+    items = {"next": None, "results": [_item(1, "Core Issue", 50, "11", "Aquaman", 2024, 700)]}
+
+    metron_get([{"name": "L"}, items])  # series links locally → no series Metron call
+    r = client.post("/api/reading-lists", json={"metron_id": 9, "issue_types": []})
+    assert r.status_code == 201
+    assert db.query(MonitoredIssue).count() == 0
+    rl = db.query(ReadingList).filter_by(metron_id=9).one()
+    assert rl.monitored_issue_types != ""  # stored as the 'none' sentinel, not 'all'
+
+    metron_get([{"name": "L"}, items])  # resync re-fetches detail + items
+    r2 = client.post(f"/api/reading-lists/{rl.id}/resync")
+    assert r2.status_code == 200
+    assert db.query(MonitoredIssue).count() == 0  # still none — didn't flip to all
+
+
 # ── per-item status ──────────────────────────────────────────────────────────
 def test_item_status(client, db, comic_file):
     s = Series(publisher="Image Comics", series_name="Saga", year=2012, metron_series_id=101)
