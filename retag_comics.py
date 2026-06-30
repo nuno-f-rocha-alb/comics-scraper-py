@@ -108,7 +108,10 @@ def retag_series(entry: tuple, force: bool = False, dry_run: bool = False):
     if annual_volume_id:
         annuals_dir = os.path.join(series_dir, "Annuals")
         if os.path.exists(annuals_dir):
-            annual_entry = (entry[0], f"{entry[1]} Annual", entry[2], annual_volume_id)
+            # Full 7-slot shape: swap only series name + CV volume to the annual's.
+            # metron_series_id/getcomics override are nulled — the main series' Metron
+            # id would mis-resolve annuals; Metron finds the annual via its CV id at [3].
+            annual_entry = (entry[0], f"{entry[1]} Annual", entry[2], annual_volume_id, None, None, None)
             tagged, skipped = retag_directory(annual_entry, annuals_dir, force, dry_run)
             logging.info(f"  Annuals — tagged: {tagged}, skipped: {skipped}")
 
