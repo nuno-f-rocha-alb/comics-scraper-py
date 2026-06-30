@@ -10,7 +10,10 @@ from apscheduler.triggers.interval import IntervalTrigger
 
 log = logging.getLogger(__name__)
 
-_DEFAULT_HOURS = int(os.getenv("SCHEDULE_INTERVAL_HOURS", "24"))
+try:
+    _DEFAULT_HOURS = max(1, int(os.getenv("SCHEDULE_INTERVAL_HOURS", "24")))
+except (TypeError, ValueError):
+    _DEFAULT_HOURS = 24
 _JOB_ID = "scraper"
 
 # RSS feed poll — the main download path (§5). Runs independently of the
@@ -181,9 +184,11 @@ def get_status() -> dict:
 
 
 def update_schedule(mode: str, value: str) -> None:
-    save_config(mode, value)
+    # Build (and thereby validate) the trigger before persisting, so a bad cron
+    # or interval is rejected instead of being saved and then crashing.
     trigger = make_trigger(mode, value)
     _scheduler.reschedule_job(_JOB_ID, trigger=trigger)
+    save_config(mode, value)
     log.info("Schedule updated: mode=%s value=%s", mode, value)
 
 
@@ -208,18 +213,20 @@ def _auto_cleanup_logs() -> None:
         cutoff = _time.time() - retention_days * 86400
         # Identify active log file to protect it
         import logging as _logging
-        active = None
-        for h in _logging.getLogger().handlers:
-            if isinstance(h, _logging.FileHandler):
-                active = h.baseFilename
-                break
+        # realpath both sides — baseFilename is absolute while listdir paths are
+        # relative, so normpath alone would never match the active log.
+        active = {
+            _os.path.realpath(h.baseFilename)
+            for h in _logging.getLogger().handlers
+            if isinstance(h, _logging.FileHandler)
+        }
 
         deleted = 0
         for name in _os.listdir(log_dir):
             if not name.endswith(".log"):
                 continue
             path = _os.path.join(log_dir, name)
-            if active and _os.path.normpath(path) == _os.path.normpath(active):
+            if _os.path.realpath(path) in active:
                 continue
             if _os.stat(path).st_mtime < cutoff:
                 _os.remove(path)
@@ -239,17 +246,21 @@ def start_scheduler() -> None:
     mode, value = load_config()
     trigger = make_trigger(mode, value)
 
+    # replace_existing=True so a second start_scheduler() call (re-entry) reuses
+    # the same job ids instead of raising ConflictingIdError.
     _scheduler.add_job(
         _wrapped_run,
         trigger=trigger,
         id=_JOB_ID,
         next_run_time=datetime.now(),
+        replace_existing=True,
     )
     _scheduler.add_job(
         _wrapped_rss_poll,
         trigger=IntervalTrigger(minutes=_RSS_POLL_MINUTES),
         id=_RSS_JOB_ID,
         next_run_time=datetime.now(),
+        replace_existing=True,
     )
     # Nightly Metron cache refresh — scheduled only (no immediate run).
     try:
@@ -257,11 +268,12 @@ def start_scheduler() -> None:
             _wrapped_metron_nightly,
             trigger=CronTrigger.from_crontab(_METRON_NIGHTLY_CRON),
             id=_METRON_NIGHTLY_JOB_ID,
+            replace_existing=True,
         )
         _nightly_desc = _METRON_NIGHTLY_CRON
     except ValueError:
         # Bad cron string → fall back to 03:00 daily rather than crash startup.
-        _scheduler.add_job(_wrapped_metron_nightly, trigger=CronTrigger(hour=3), id=_METRON_NIGHTLY_JOB_ID)
+        _scheduler.add_job(_wrapped_metron_nightly, trigger=CronTrigger(hour=3), id=_METRON_NIGHTLY_JOB_ID, replace_existing=True)
         _nightly_desc = "0 3 * * * (fallback)"
         log.warning("Invalid METRON_NIGHTLY_CRON %r — using 03:00 daily.", _METRON_NIGHTLY_CRON)
     # Nightly Komga read-list re-push (no-op when Komga unconfigured).
@@ -270,9 +282,10 @@ def start_scheduler() -> None:
             _wrapped_komga_nightly,
             trigger=CronTrigger.from_crontab(_KOMGA_NIGHTLY_CRON),
             id=_KOMGA_NIGHTLY_JOB_ID,
+            replace_existing=True,
         )
     except ValueError:
-        _scheduler.add_job(_wrapped_komga_nightly, trigger=CronTrigger(hour=3, minute=30), id=_KOMGA_NIGHTLY_JOB_ID)
+        _scheduler.add_job(_wrapped_komga_nightly, trigger=CronTrigger(hour=3, minute=30), id=_KOMGA_NIGHTLY_JOB_ID, replace_existing=True)
         log.warning("Invalid KOMGA_NIGHTLY_CRON %r — using 03:30 daily.", _KOMGA_NIGHTLY_CRON)
     _scheduler.start()
     log.info(

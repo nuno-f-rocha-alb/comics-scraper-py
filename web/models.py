@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from sqlalchemy import Boolean, DateTime, Float, Index, Integer, String, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Index, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 from web.database import Base
 
@@ -173,7 +173,12 @@ class ReadingListItem(Base):
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    reading_list_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    # FK is declarative only — SQLite doesn't enforce it without PRAGMA
+    # foreign_keys=ON (not enabled); orphan cleanup is done in app code on
+    # delete/resync. The constraint documents ownership and orders create_all.
+    reading_list_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("reading_lists.id", ondelete="CASCADE"), nullable=False
+    )
     order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     issue_type: Mapped[str] = mapped_column(String, nullable=False, default="", server_default="")
     metron_issue_id: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -185,7 +190,9 @@ class ReadingListItem(Base):
     cv_issue_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     cv_series_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     # Local Series this item maps to, once created/matched.
-    series_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    series_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("series.id", ondelete="SET NULL"), nullable=True
+    )
 
 
 class SuggestedReadingList(Base):
