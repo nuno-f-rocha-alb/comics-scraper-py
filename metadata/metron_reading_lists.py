@@ -47,15 +47,19 @@ def _year(date_str) -> int | None:
 
 
 def parse_item(raw: dict) -> dict:
-    """Flatten a Metron reading-list item into the fields ReadingListItem stores."""
+    """Flatten a Metron reading-list item into the fields ReadingListItem stores.
+
+    Note: the /items/ endpoint's nested `series` has NO id — only name, volume
+    and year_began — so series are linked by name + year (not a series id)."""
     issue = raw.get("issue") or {}
     series = issue.get("series") or {}
     return {
         "order": raw.get("order") or 0,
         "issue_type": raw.get("issue_type") or "",
         "metron_issue_id": issue.get("id"),
-        "metron_series_id": series.get("id"),
         "series_name": series.get("name"),
+        "series_year": series.get("year_began"),
+        "series_volume": series.get("volume"),
         "number": issue.get("number"),
         "cover_year": _year(issue.get("cover_date")) or _year(issue.get("store_date")),
         "cv_issue_id": issue.get("cv_id"),

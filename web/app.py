@@ -2316,7 +2316,7 @@ def _create_or_get_series_from_metron(metron_series_id: int, db: Session) -> Ser
         log.warning("Could not fetch Metron series %s: %s", metron_series_id, exc)
         return None
     publisher = (data.get("publisher") or {}).get("name") or "Unknown"
-    name = data.get("name") or f"Series {metron_series_id}"
+    name = data.get("name") or data.get("series") or f"Series {metron_series_id}"
     year = data.get("year_began")
     s = Series(publisher=publisher, series_name=name, year=year, metron_series_id=metron_series_id)
     _apply_metron_series_data(s, data)  # cover / total / status / cv_id (no extra call)
@@ -2337,6 +2337,48 @@ def _create_or_get_series_from_metron(metron_series_id: int, db: Session) -> Ser
         if s and not s.metron_series_id:
             s.metron_series_id = metron_series_id
         return s
+
+
+def _find_local_series(db: Session, name: str | None, year: int | None) -> Series | None:
+    """Match a tracked Series by name (case-insensitive) + year — the join key
+    for reading-list items, whose Metron payload has no series id."""
+    if not name:
+        return None
+    q = db.query(Series).filter(Series.series_name.ilike(name.strip()))
+    # When a year is known, require it — falling back to any same-named series
+    # could match the wrong volume.
+    if year is not None:
+        return q.filter(Series.year == year).first()
+    return q.first()
+
+
+def _resolve_series_for_reading_list(
+    db: Session, name: str | None, year: int | None, volume: int | None = None,
+) -> Series | None:
+    """Find the local Series for a reading-list item by name + year. If none is
+    tracked, resolve the Metron series id via search (matching year_began/volume)
+    and create it. Never blocks the add on Metron — returns None on any failure."""
+    s = _find_local_series(db, name, year)
+    if s or not name:
+        return s
+    from config import METRON_BASE_URL
+    from metadata.metron_client import get as metron_get
+    try:
+        results = metron_get(f"{METRON_BASE_URL}/series/", name=name, block=False).json().get("results", [])
+    except Exception as exc:  # incl. RateLimitedError — don't fail the whole add
+        log.warning("Metron series search failed for %r: %s", name, exc)
+        return None
+    match = next(
+        (r for r in results if r.get("year_began") == year and (volume is None or r.get("volume") == volume)),
+        None,
+    ) or next((r for r in results if r.get("year_began") == year), None)
+    if not match:
+        return None
+    try:
+        return _create_or_get_series_from_metron(match["id"], db)
+    except Exception as exc:
+        log.warning("Could not create series %r from Metron: %s", name, exc)
+        return None
 
 
 def _reading_list_dict(rl: ReadingList, db: Session) -> dict:
@@ -2419,19 +2461,15 @@ def api_reading_list_preview(metron_id: int, db: Session = Depends(get_db)):
     except RateLimitedError as exc:
         raise HTTPException(status_code=429, detail=str(exc))
 
-    tracked = {
-        s.metron_series_id for s in db.query(Series).filter(Series.metron_series_id.isnot(None)).all()
-    }
     local_cache: dict[int, set] = {}
     type_counts: dict[str, int] = {}
     for it in items:
-        sid = it["metron_series_id"]
-        s = db.query(Series).filter(Series.metron_series_id == sid).first() if sid in tracked else None
+        s = _find_local_series(db, it["series_name"], it["series_year"])
         owned = False
         if s:
             nums = local_cache.setdefault(s.id, _local_issue_numbers(s))
             owned = _norm_issue_num(it["number"]) in nums
-        it["series_tracked"] = sid in tracked
+        it["series_tracked"] = s is not None
         it["owned"] = owned
         type_counts[it["issue_type"] or ""] = type_counts.get(it["issue_type"] or "", 0) + 1
 
@@ -2489,22 +2527,24 @@ def api_reading_list_add(payload: ReadingListAdd, db: Session = Depends(get_db))
     # Replace items wholesale (cheap; lists are small).
     db.query(ReadingListItem).filter(ReadingListItem.reading_list_id == rl.id).delete()
 
-    series_by_metron: dict[int, Series] = {}
+    # The Metron items payload has no series id, so link by name + year (matches
+    # already-tracked series with no Metron call; resolves/creates the rest).
+    series_cache: dict[tuple, Series | None] = {}
     for p in parsed:
-        sid_metron = p["metron_series_id"]
-        s = None
-        if sid_metron:
-            s = series_by_metron.get(sid_metron) or _create_or_get_series_from_metron(sid_metron, db)
-            if s:
-                series_by_metron[sid_metron] = s
+        key = ((p["series_name"] or "").strip().lower(), p["series_year"], p.get("series_volume"))
+        if key not in series_cache:
+            series_cache[key] = _resolve_series_for_reading_list(
+                db, p["series_name"], p["series_year"], p.get("series_volume"),
+            )
+        s = series_cache[key]
         item = ReadingListItem(
             reading_list_id=rl.id,
             order=p["order"],
             issue_type=p["issue_type"],
             metron_issue_id=p["metron_issue_id"],
-            metron_series_id=sid_metron,
+            metron_series_id=(s.metron_series_id if s else None),
             series_name=p["series_name"],
-            series_year=(s.year if s else None),
+            series_year=p["series_year"],
             number=p["number"],
             cover_year=p["cover_year"],
             cv_issue_id=p["cv_issue_id"],
