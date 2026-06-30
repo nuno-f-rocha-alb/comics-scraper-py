@@ -400,7 +400,7 @@ export interface ReadingListCard {
   image_url: string | null
   average_rating: number | null
   num_items: number
-  monitored_issue_types: string[]
+  monitored_issue_types: string[] | null  // null = monitor all, [] = none, [..] = specific types
   owned: number
   total: number
   synced_at: string | null
