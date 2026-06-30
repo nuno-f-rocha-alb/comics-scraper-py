@@ -2601,16 +2601,18 @@ def api_reading_list_add(payload: ReadingListAdd, db: Session = Depends(get_db))
             num = _norm_issue_num(p["number"])
             mkey = (s.id, num)
             if mkey not in monitored_seen:
-                exists = (
-                    db.query(MonitoredIssue)
-                    .filter(MonitoredIssue.series_id == s.id,
-                            MonitoredIssue.issue_number == num,
-                            MonitoredIssue.issue_type == "regular")
-                    .first()
-                )
-                if not exists:
-                    db.add(MonitoredIssue(series_id=s.id, issue_number=num, issue_type="regular"))
                 monitored_seen.add(mkey)
+                # SAVEPOINT so a unique clash — this list has the issue twice, or
+                # a prior list/run already monitors it — is contained instead of
+                # poisoning the whole reading-list transaction (which then made
+                # every subsequent series creation fail). ponytail: one savepoint
+                # per monitored issue; fine because lists are small.
+                try:
+                    with db.begin_nested():
+                        db.add(MonitoredIssue(series_id=s.id, issue_number=num, issue_type="regular"))
+                        db.flush()
+                except IntegrityError:
+                    pass  # already monitored — fine
 
     db.commit()
     db.refresh(rl)
