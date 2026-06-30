@@ -139,14 +139,17 @@ def check_and_download_comics(
         else:
             formatted_issue_number = "000"
 
-        # Apply issue number bounds
-        if issue_number.isdigit():
-            num = int(issue_number)
+        # Apply issue number bounds (decimal-aware so #1.5 is bounded like #1/#2)
+        try:
+            num = float(issue_number)
+        except (ValueError, TypeError):
+            num = None
+        if num is not None:
             if issue_min is not None and num < issue_min:
-                logging.info(f"Ignoring {title}: issue #{num} is below issue_min={issue_min}.")
+                logging.info(f"Ignoring {title}: issue #{issue_number} is below issue_min={issue_min}.")
                 continue
             if issue_max is not None and num > issue_max:
-                logging.info(f"Ignoring {title}: issue #{num} is above issue_max={issue_max}.")
+                logging.info(f"Ignoring {title}: issue #{issue_number} is above issue_max={issue_max}.")
                 continue
 
         # Apply selective monitoring per type
