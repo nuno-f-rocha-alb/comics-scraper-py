@@ -127,6 +127,23 @@ def test_add_dedupes_same_series_number_no_unique_violation(client, db, metron_g
     assert db.query(MonitoredIssue).count() == 1
 
 
+def test_add_does_not_crash_when_issue_already_monitored(client, db, comic_file, metron_get):
+    # A prior list/run already monitors this series' #1 (committed). Adding a list
+    # that includes it must not raise a unique-constraint error and poison the txn.
+    s = Series(publisher="DC", series_name="Pre Owned", year=2024)
+    db.add(s); db.commit()
+    db.add(MonitoredIssue(series_id=s.id, issue_number="1", issue_type="regular"))
+    db.commit()
+
+    detail = {"name": "Pre List"}
+    items = {"next": None, "results": [_item(1, "Core Issue", 60, "1", "Pre Owned", 2024, 700)]}
+    metron_get([detail, items])  # local series found by name+year → no Metron series call
+
+    r = client.post("/api/reading-lists", json={"metron_id": 77, "issue_types": ["Core Issue"]})
+    assert r.status_code == 201, r.text
+    assert db.query(MonitoredIssue).count() == 1  # still one — no duplicate inserted
+
+
 def test_monitor_none_survives_resync(client, db, metron_get):
     # issue_types=[] (monitor none) must not degrade to "all" on re-sync.
     s = Series(publisher="DC", series_name="Aquaman", year=2024)
