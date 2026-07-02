@@ -4,6 +4,7 @@ from urllib.parse import urlparse
 import requests
 from tqdm_loggable.auto import tqdm
 from util import sanitize_filename
+from downloader import cf_solver
 
 
 class DownloadCancelled(Exception):
@@ -45,9 +46,17 @@ def download_file(url, save_dir, series_name, issue_number, volume_year,
     file_name = os.path.basename(parsed_url.path)
     file_extension = os.path.splitext(file_name)[1]  # Get the file extension
 
+    # Replay any CF clearance FlareSolverr minted for this host (cookies + the
+    # exact UA they were bound to), so a Cloudflare-gated mirror lets the direct
+    # stream through. No-op / plain requests when the solver is disabled.
+    headers = dict(HEADERS)
+    cookies, ua = cf_solver.clearance_for(url)
+    if ua:
+        headers["User-Agent"] = ua
+
     # `with` guarantees the streaming connection/socket is released on every
     # exit path (success, IOError, or mid-download cancel).
-    with requests.get(url, headers=HEADERS, stream=True, timeout=(10, 120)) as response:
+    with requests.get(url, headers=headers, cookies=cookies, stream=True, timeout=(10, 120)) as response:
         response.raise_for_status()
 
         total_size = int(response.headers.get('Content-Length', 0))
