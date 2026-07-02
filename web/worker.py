@@ -113,16 +113,14 @@ def _download_issue(series, issue_number: str, is_cancelled=None, on_progress=No
     from downloader.download_file import download_file, DownloadCancelled
     from downloader.get_comic_download_url import get_comic_download_url
     from downloader.process_downloaded_comic import process_downloaded_comic
-    from util import create_series_directory, install_to_library, is_getcomics_url, normalize_title, staging_dir
+    from util import create_series_directory, install_to_library, is_getcomics_url, norm_issue_number, normalize_title, staging_dir
 
     entry = series.to_scraper_tuple()
     search_name = entry[6] or entry[1]
     normalized_series = normalize_title(entry[1])
 
-    try:
-        target_num = str(int(float(issue_number)))
-    except (ValueError, TypeError):
-        target_num = issue_number
+    # Decimal-safe: '1.5' must not truncate to '1' and match issue 1's post.
+    target_num = norm_issue_number(issue_number)
 
     # RSS / Releases supply the exact getcomics post URL — skip the search and
     # resolve the download link straight from it (lighter, no search mismatch).

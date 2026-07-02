@@ -21,6 +21,7 @@ from web.models import (
     AppSetting, DownloadJob, MetronCache, MetronIssueCache, MonitoredIssue,
     ReadingList, ReadingListItem, Series,
 )
+from util import norm_issue_number  # decimal-safe: '001'=='1'=='1.0' but '1.5'≠'1', never raises
 
 COMICS_BASE_DIR = os.getenv("COMICS_BASE_DIR", "/app/comics")
 
@@ -62,10 +63,7 @@ def _extract_nums(folder: str) -> set[str]:
             continue
         m = re.search(r"#(\d+(?:\.\d+)?)", f)
         if m:
-            try:
-                nums.add(str(int(float(m.group(1)))))
-            except ValueError:
-                pass
+            nums.add(norm_issue_number(m.group(1)))
     return nums
 
 
@@ -307,7 +305,7 @@ def _find_issue_file(s: Series, issue_num: str, annual: bool | None = None) -> s
     annual=True  → only Annuals subfolder
     annual=False → only the regular series folder
     """
-    target = str(int(float(issue_num))) if issue_num else None
+    target = norm_issue_number(issue_num) if issue_num else None
     if not target:
         return None
     base = _series_dir(s)
@@ -324,7 +322,7 @@ def _find_issue_file(s: Series, issue_num: str, annual: bool | None = None) -> s
             if not name.lower().endswith((".cbz", ".cbr")):
                 continue
             m = re.search(r"#(\d+(?:\.\d+)?)", name)
-            if m and str(int(float(m.group(1)))) == target:
+            if m and norm_issue_number(m.group(1)) == target:
                 return os.path.join(folder, name)
     return None
 
@@ -347,11 +345,8 @@ def _build_issue_list(raw: list[dict], local_nums: set[str]) -> list[dict]:
     today = date.today()
     issues = []
     for issue in raw:
-        num_str = str(issue.get("number", ""))
-        try:
-            normalized = str(int(float(num_str))) if num_str else ""
-        except (ValueError, TypeError):
-            normalized = num_str
+        num_str = str(issue.get("number") or "")  # explicit None → "" not "None"
+        normalized = norm_issue_number(num_str) if num_str else ""
 
         date_str = issue.get("store_date") or issue.get("cover_date") or ""
         issue_date = None
@@ -968,10 +963,7 @@ def _scan_series_dir(s: Series) -> tuple[int, set[str]]:
         count += 1
         m = re.search(r"#(\d+(?:\.\d+)?)", f)
         if m:
-            try:
-                nums.add(str(int(float(m.group(1)))))
-            except ValueError:
-                pass
+            nums.add(norm_issue_number(m.group(1)))
     return count, nums
 
 
@@ -1044,10 +1036,7 @@ def _series_overview(db: Session):
             for c in cached_issues_by_metron.get(mid, []):
                 if not c.number:
                     continue
-                try:
-                    num = str(int(float(c.number)))
-                except (ValueError, TypeError):
-                    num = c.number
+                num = norm_issue_number(c.number)
                 if num in local_set:
                     continue
                 # Missing — was it supposed to be out by now? Use the same
@@ -1299,10 +1288,7 @@ def bulk_monitor(payload: dict, db: Session = Depends(get_db)):
             for c in cached:
                 if not c.number:
                     continue
-                try:
-                    norm = str(int(float(c.number)))
-                except (ValueError, TypeError):
-                    norm = c.number
+                norm = norm_issue_number(c.number)
                 if mode == "future":
                     if not c.store_date or c.store_date < today_iso:
                         continue
@@ -1415,10 +1401,7 @@ def api_issue_monitor(series_id: int, number: str, type: str = Query(default="re
     if not s:
         raise HTTPException(status_code=404)
     issue_type = type if type in ("regular", "annual") else "regular"
-    try:
-        norm = str(int(float(number)))
-    except (ValueError, TypeError):
-        norm = number
+    norm = norm_issue_number(number)
     existing = (
         db.query(MonitoredIssue)
         .filter(
@@ -1456,10 +1439,7 @@ def api_monitor_all(series_id: int, db: Session = Depends(get_db)):
         for row in rows:
             if not row.number:
                 continue
-            try:
-                norm = str(int(float(row.number)))
-            except (ValueError, TypeError):
-                norm = row.number
+            norm = norm_issue_number(row.number)
             if norm not in existing:
                 db.add(MonitoredIssue(series_id=series_id, issue_number=norm, issue_type=issue_type))
                 existing.add(norm)
@@ -1997,10 +1977,7 @@ def _load_calendar_events(
         local_nums = local_cache[key]
 
         num_raw = (issue.number or "").strip()
-        try:
-            num_norm = str(int(float(num_raw))) if num_raw else ""
-        except (ValueError, TypeError):
-            num_norm = num_raw
+        num_norm = norm_issue_number(num_raw) if num_raw else ""
         downloaded = bool(num_norm) and num_norm in local_nums
 
         try:
@@ -2094,11 +2071,13 @@ def _match_feed_entries(entries, db: Session) -> list[dict]:
     pub_date desc, each item describing whether we already have it locally
     or have a job in flight.
     """
-    from util import normalize_title, norm_issue_number
+    from util import normalize_title
 
     series_rows = db.query(Series).filter(Series.enabled == True).all()  # noqa: E712
-    # Index by normalized name for O(1) match.
-    by_norm: dict[str, Series] = {}
+    # Index by normalized name. A name can map to several enabled volumes (e.g.
+    # two "Batman" runs from different years), so keep all candidates and
+    # disambiguate by year at match time — never silently pick the last one.
+    by_norm: dict[str, list[Series]] = {}
     for s in series_rows:
         # Same year-stripping the scraper does — series_name may carry "(YYYY)"
         # for disambiguation, getcomics titles don't.
@@ -2106,7 +2085,7 @@ def _match_feed_entries(entries, db: Session) -> list[dict]:
             r"\s*\(\d{4}\)\s*$", "", normalize_title(s.series_name)
         ).strip()
         if norm:
-            by_norm[norm] = s
+            by_norm.setdefault(norm, []).append(s)
 
     # Precompute local file numbers per series (only once each).
     local_cache: dict[int, set[str]] = {}
@@ -2125,9 +2104,18 @@ def _match_feed_entries(entries, db: Session) -> list[dict]:
         if not e.series_name:
             continue
         norm = normalize_title(e.series_name)
-        s = by_norm.get(norm)
-        if not s:
+        candidates = by_norm.get(norm)
+        if not candidates:
             continue
+        if len(candidates) == 1:
+            s = candidates[0]
+        else:
+            # Ambiguous name — disambiguate by the feed's parsed year. Bind only
+            # on a unique year match; otherwise skip rather than guess a volume.
+            year_matches = [c for c in candidates if e.year and c.year == e.year]
+            if len(year_matches) != 1:
+                continue
+            s = year_matches[0]
         num_norm = norm_issue_number(e.issue_number)
 
         if s.id not in local_cache:
@@ -2306,11 +2294,9 @@ def api_log_settings(payload: LogSettings, db: Session = Depends(get_db)):
 # ── Reading lists ────────────────────────────────────────────────────────────
 
 def _norm_issue_num(n) -> str:
-    """Match the scraper/monitoring normalisation ('001' == '1' == '1.0')."""
-    try:
-        return str(int(float(n)))
-    except (ValueError, TypeError):
-        return str(n or "").strip()
+    """Match the scraper/monitoring normalisation ('001' == '1' == '1.0', but
+    '1.5' stays distinct). Thin alias for the shared helper."""
+    return norm_issue_number(n)
 
 
 # In-memory TTL cache for reading-list SEARCH only — the added lists are the
