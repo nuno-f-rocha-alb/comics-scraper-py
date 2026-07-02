@@ -197,3 +197,40 @@ verify results on a failed retry; stale `specs/series-list.md`.
 **Next:** download-staging (spec'd in `specs/download-staging.md` — stage downloads in
 `COMICS_BASE_DIR/.downloads`, tag+convert+rename there, atomic-move the finished `.cbz` to the Komga
 library) and the decimal-normalization backlog unit.
+
+## §6 — Decimal-safe normalization + RSS volume matching + CF download guard (`flow/app-findings-fix`)
+
+Closes the **§2 cross-layer decimal-normalization backlog** flagged since §5. `util.norm_issue_number`
+already existed (decimal-safe, non-raising); the fix was to actually *use* it. Routed all 11
+`str(int(float(n)))` sites in `web/app.py` (plus the worker's search-match `target_num`) through it, so
+`#1.5` no longer collapses onto `#1` and `_find_issue_file` no longer 500s on non-numeric route input.
+Integer normalization is byte-identical to before — no stored-key migration needed after all (the feared
+migration was avoidable because integers normalize the same both ways; only decimals/non-numeric change).
+
+**RSS volume bug:** `_match_feed_entries` indexed `by_norm[name] = Series`, silently overwriting when two
+enabled volumes share a title (two "Teen Titans" runs) — an entry could bind to the wrong volume. Now
+`by_norm[name] = list[Series]`; single → use it, multiple → disambiguate by the feed's parsed year, still
+ambiguous → skip (never guess).
+
+**Also:** `_build_issue_list` hardens explicit-null issue number (`None`→`""` not `"None"`); the
+`convert_cbr_to_cbz` "Not a RAR file" confusion is separately fixed in `downloader/download_file.py` by
+sniffing magic bytes right after download (a Cloudflare challenge page saved as `.cbr` now fails fast with
+a clear "possibly blocked" error instead of a cryptic RAR error downstream).
+
+**Findings triage (CodeRabbit + the original 4):** fixed the 2 in-scope (app decimal, worker decimal);
+verified 2 **stale/false-positive** and skipped with reasons — `api_series_issues` "must be HTMX partial"
+(Jinja UI retired, no `web/templates/`, SPA consumes JSON) and reading-list `issue_type="regular"`
+(`MonitoredIssue.issue_type` is the regular/annual *folder* axis, not the Core/Tie-In membership axis, so
+the constant is correct). Built via `/flow`; spec `specs/app-findings-fix.md`, gate
+`reviews/app-findings-fix.md`.
+
+**Gate:** 87 pytest (was 81; +6 — decimal distinctness, non-numeric safety, RSS year-disambiguation),
+CodeRabbit clean on the diff. Updated `test_scan.py` which had *encoded the `#1.5`→`1` bug as expected
+behaviour*.
+
+**Backlog surfaced (pre-existing, deferred to tasks):** Metron issue-cache sync (`web/app.py` ~442-531)
+prunes all stale rows on an empty/transient fetch → wipes a series' cache (data-loss guard needed);
+`_wrapped_metron_nightly` (`web/scheduler.py`) may not thread `only_active=True` per CLAUDE.md's documented
+intent; `downloader/test_issue_format.py` duplicates prod format logic instead of importing it.
+
+**Next:** download-staging unit (still spec'd, not yet built).
