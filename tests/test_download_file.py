@@ -43,8 +43,11 @@ def fake_get(monkeypatch):
     return _install
 
 
+_ZIP_MAGIC = b"PK\x03\x04" + b"x" * 96  # valid cbz header + padding to 100 bytes
+
+
 def test_response_closed_on_success(tmp_path, fake_get):
-    resp = fake_get([b"x" * 100], 100)
+    resp = fake_get([_ZIP_MAGIC], len(_ZIP_MAGIC))
     path = dl.download_file("http://x/y.cbz", str(tmp_path), "Saga", "001", "2012")
     assert os.path.isfile(path)
     assert resp.closed is True
@@ -58,3 +61,22 @@ def test_response_closed_on_cancel(tmp_path, fake_get):
     assert resp.closed is True
     # the .part scratch file must not be left behind
     assert not any(f.endswith(".part") for f in os.listdir(tmp_path))
+
+
+def test_rejects_challenge_page_disguised_as_comic(tmp_path, fake_get):
+    """A Cloudflare (or other) challenge page served with a 200 status and a
+    .cbr/.cbz extension must be rejected instead of silently saved — this is
+    what previously surfaced downstream as a confusing 'Not a RAR file' error."""
+    html = b"<!DOCTYPE html><html>please verify you are human</html>"
+    fake_get([html], len(html))
+    with pytest.raises(IOError, match="doesn't look like"):
+        dl.download_file("http://x/y.cbr", str(tmp_path), "Saga", "001", "2012")
+    assert not any(f.endswith(".part") for f in os.listdir(tmp_path))
+    assert not any(f.endswith(".cbr") for f in os.listdir(tmp_path))
+
+
+def test_accepts_valid_rar_signature(tmp_path, fake_get):
+    rar = b"Rar!\x1a\x07\x00" + b"x" * 20
+    fake_get([rar], len(rar))
+    path = dl.download_file("http://x/y.cbr", str(tmp_path), "Saga", "001", "2012")
+    assert os.path.isfile(path)

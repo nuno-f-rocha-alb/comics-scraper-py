@@ -10,6 +10,28 @@ class DownloadCancelled(Exception):
     """Raised when an in-flight download is cancelled by the user."""
 
 
+# Magic-byte signatures per extension. A Cloudflare (or other) challenge page
+# served with a 200 status still ends up here with a comic-file extension, so
+# checking Content-Length/status alone isn't enough — sniff the actual bytes.
+_MAGIC_SIGNATURES = {
+    ".cbz": (b"PK\x03\x04", b"PK\x05\x06", b"PK\x07\x08"),
+    ".zip": (b"PK\x03\x04", b"PK\x05\x06", b"PK\x07\x08"),
+    ".cbr": (b"Rar!\x1a\x07\x00", b"Rar!\x1a\x07\x01\x00"),
+    ".pdf": (b"%PDF",),
+}
+
+
+def _looks_like_expected_file(path, file_extension):
+    """True if path's header matches file_extension's known signature, or the
+    extension isn't one we recognise (be lenient rather than reject unknowns)."""
+    signatures = _MAGIC_SIGNATURES.get(file_extension.lower())
+    if not signatures:
+        return True
+    with open(path, "rb") as f:
+        header = f.read(8)
+    return any(header.startswith(sig) for sig in signatures)
+
+
 def download_file(url, save_dir, series_name, issue_number, volume_year,
                   is_cancelled=None, on_progress=None):
     """Downloads a file from the final URL and renames it based on the series name and issue number.
@@ -59,6 +81,13 @@ def download_file(url, save_dir, series_name, issue_number, volume_year,
             if total_size and bytes_written != total_size:
                 raise IOError(
                     f"Incomplete download: got {bytes_written} bytes, expected {total_size}"
+                )
+
+            if not _looks_like_expected_file(part_path, file_extension):
+                raise IOError(
+                    f"Downloaded content for {save_path} doesn't look like a "
+                    f"{file_extension} file (got a challenge/error page instead? "
+                    f"possibly blocked by Cloudflare)"
                 )
 
             if os.path.exists(save_path):

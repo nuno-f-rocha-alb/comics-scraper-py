@@ -105,7 +105,7 @@ class _Series:
 
 def test_worker_installs_to_library_not_staging(monkeypatch, tmp_path):
     monkeypatch.setattr(util, "COMICS_BASE_DIR", str(tmp_path))
-    monkeypatch.setattr(dl.requests, "get", lambda *a, **k: _FakeResp(b"comic-bytes"))
+    monkeypatch.setattr(dl.requests, "get", lambda *a, **k: _FakeResp(b"PK\x03\x04comic-bytes"))
     monkeypatch.setattr(
         "downloader.get_comic_download_url.get_comic_download_url",
         lambda url: "http://x/Saga.cbz",
