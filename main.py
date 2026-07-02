@@ -7,6 +7,14 @@ from downloader.check_and_download_comics import check_and_download_comics
 from util import create_series_directory
 
 
+def _is_http_403(exc: Exception) -> bool:
+    """True if exc is (or wraps) an HTTP 403. Duck-typed on the requests
+    HTTPError's .response.status_code so no requests import is needed and a
+    wrapped/re-raised error still matches."""
+    resp = getattr(exc, "response", None)
+    return getattr(resp, "status_code", None) == 403
+
+
 def _load_series() -> list[tuple]:
     from web.database import SessionLocal, init_db
     from web.models import MonitoredIssue, Series
@@ -61,11 +69,20 @@ def run_scraper():
             else:
                 logging.warning("No comics found for series: %s", entry[1])
         except Exception as exc:
-            logging.error(
-                "Series %s (%s) failed; continuing with next series. Error: %s",
-                entry[1], entry[0], exc,
-                exc_info=True,
-            )
+            if _is_http_403(exc):
+                # Cloudflare human-gate on the mirror (e.g. comicfiles.ru). Expected
+                # and unactionable — skip quietly, the next run retries. No traceback.
+                logging.warning(
+                    "Series %s (%s): mirror blocked (HTTP 403, likely Cloudflare) — "
+                    "skipping, will retry next run.",
+                    entry[1], entry[0],
+                )
+            else:
+                logging.error(
+                    "Series %s (%s) failed; continuing with next series. Error: %s",
+                    entry[1], entry[0], exc,
+                    exc_info=True,
+                )
 
     elapsed = time.time() - start_time
     minutes, seconds = int(elapsed // 60), elapsed % 60
