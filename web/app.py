@@ -509,9 +509,13 @@ def _get_or_fetch_metron_issues(
                 cached_at=now,
             ))
 
-    # Remove issues that no longer exist in Metron
+    # Remove issues that no longer exist in Metron — but only when this fetch
+    # actually returned issues. An empty/partial response (transient API hiccup,
+    # rate-limit returning {}) would otherwise mark the whole cache stale and
+    # wipe it; treat "fetched nothing but had a cache" as transient and skip the
+    # prune. Same guard rationale as new_total below.
     stale_ids = set(existing_by_id.keys()) - seen_ids
-    if stale_ids:
+    if stale_ids and seen_ids:
         db.query(MetronIssueCache).filter(
             MetronIssueCache.series_id == metron_series_id,
             MetronIssueCache.metron_id.in_(stale_ids),

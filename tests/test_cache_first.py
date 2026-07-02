@@ -65,6 +65,27 @@ def test_empty_cache_fetches_once(client, db, monkeypatch):
     assert db.query(MetronIssueCache).filter(MetronIssueCache.series_id == 101).count() == 1
 
 
+def test_empty_fetch_does_not_wipe_cache(db, monkeypatch):
+    """A transient empty Metron response must NOT prune the whole issue cache.
+    Regression: stale_ids = all existing ids when seen_ids is empty → wipeout."""
+    _series(db)
+    old = datetime.utcnow() - timedelta(days=999)
+    _cache_issue(db, 101, "1", old)
+    _cache_issue(db, 101, "2", old)
+
+    class _Empty:
+        def json(self):
+            return {"next": None, "results": []}  # transient hiccup / rate-limit
+    monkeypatch.setattr(mc, "get", lambda *a, **k: _Empty())
+
+    # force=True bypasses the cache short-circuit and hits the fetch+prune path.
+    appmod._get_or_fetch_metron_issues(101, db, force=True, block=True)
+
+    surviving = {r.number for r in db.query(MetronIssueCache)
+                 .filter(MetronIssueCache.series_id == 101).all()}
+    assert surviving == {"1", "2"}  # cache preserved, not wiped
+
+
 def test_ended_series_with_upcoming_issue_is_not_finished(client, db):
     # A metadata-"Completed" 12-issue series whose #12 is still future-dated is
     # NOT finished — it shows as continuing, not ended.
