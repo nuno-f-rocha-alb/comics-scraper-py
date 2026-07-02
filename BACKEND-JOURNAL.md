@@ -255,3 +255,20 @@ that already protects `Series.total_issues`).
 `util.staging_dir()`/`install_to_library()` + `web/worker.py`, see CLAUDE.md §6. Small deferred
 backlog remains: `_wrapped_metron_nightly` `only_active` thread-through, `downloader/test_issue_format.py`
 importing prod `format_issue`.)
+
+## §8 — Quiet the scheduled scraper's Cloudflare-gate 403 log (`flow/cf-403-log-noise`)
+
+The scheduled scraper (`main.py:run_scraper`, distinct from the worker path) logged **every** per-series
+failure at ERROR with `exc_info=True`. A Cloudflare-gated mirror (`comicfiles.ru`) returns HTTP 403 at
+`download_file`'s `raise_for_status()` — expected and unactionable — so a routine "mirror blocked, retry
+next run" printed a full traceback that reads like a crash. New `_is_http_403(exc)` duck-types on
+`exc.response.status_code` (no `requests` import; matches wrapped/re-raised HTTPErrors too); a 403 logs a
+one-line WARNING naming Cloudflare, everything else keeps ERROR + traceback. Per-series resilience
+unchanged. This is the scraper-side half of the turn-1 "distinguish CF-blocked from real errors" ask (the
+worker/magic-byte guard was §6); note the 403 raises *before* any bytes, so the magic-byte sniff never
+applied to it.
+
+**Gate:** 90 pytest (+2 — `run_scraper` logs 403→WARNING/no-traceback, generic→ERROR/exc_info, loop
+continues; `_is_http_403` unit), CodeRabbit clean (0 findings).
+
+**Next:** nothing queued (same small deferred backlog as §7).
