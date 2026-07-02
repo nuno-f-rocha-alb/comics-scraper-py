@@ -71,3 +71,12 @@ METRON_PASS = os.getenv("METRON_PASS", "")
 # hides the button. KOMGA_URL has no trailing slash (e.g. http://komga:25600).
 KOMGA_URL = os.getenv("KOMGA_URL", "").rstrip("/")
 KOMGA_API_KEY = os.getenv("KOMGA_API_KEY", "")
+
+# Cloudflare "are you human" challenge solver (optional). Unset → every helper in
+# downloader/cf_solver.py is a no-op and fetches use plain requests. Set to a
+# FlareSolverr instance (e.g. http://flaresolverr:8191) to route HTML fetches
+# through a headless browser and replay the returned CF clearance on downloads.
+FLARESOLVERR_URL = os.getenv("FLARESOLVERR_URL", "").rstrip("/")
+# Optional upstream proxy for the solver (single endpoint, no rotation). Unset → direct.
+PROXY_URL = os.getenv("PROXY_URL", "")
+CF_SOLVER_TIMEOUT = int(os.getenv("CF_SOLVER_TIMEOUT", "60000"))  # ms, FlareSolverr maxTimeout

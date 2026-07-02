@@ -272,3 +272,29 @@ applied to it.
 continues; `_is_http_403` unit), CodeRabbit clean (0 findings).
 
 **Next:** nothing queued (same small deferred backlog as §7).
+
+## §9 — Actually bypass the Cloudflare "are you human" challenge (`flow/cf-challenge-solver`)
+
+§6/§8 only *detected* a CF gate (magic-byte guard) or *quieted* its 403 log; this §9 gets through it. New
+`downloader/cf_solver.py` — a thin **FlareSolverr** client (headless-browser solver, the *arr-stack
+standard) plus a per-host clearance cache. Chose a compose **sidecar over in-tree puppeteer/Playwright**:
+this is a Python single-container app with no Node runtime, and a solver can't stream 50 MB files anyway —
+so it solves only the *HTML* and hands back CF clearance (cookies + the exact UA they're bound to) that the
+existing `requests` download replays. Enabled iff `FLARESOLVERR_URL` is set → every helper is a transparent
+no-op otherwise, zero behaviour change when off. `get_comic_download_url` fetches the page via the solver
+(falls back to plain `requests` + the 429 back-off when disabled); `download_file` calls `clearance_for(url)`
+and merges the host's cookies + UA before the stream, so a **gated mirror** (different CF zone than
+getcomics.org) is solved on its own host. Optional single `PROXY_URL` threads into the FlareSolverr payload
+only when set — no rotation (ponytail ceiling; add per-request rotation if IP bans start). Clearance cache
+is process-lifetime only; a worker restart just re-solves. `docker-compose.yml` gains the `flaresolverr`
+service + `depends_on`.
+
+Key correctness note: CF `cf_clearance` is host-scoped **and** UA-bound, so `download_file` must override
+`User-Agent` with the solver's UA (not our static `HEADERS` UA) or the replayed cookie is rejected.
+
+**Gate:** 96 pytest (+7 — `test_cf_solver.py`: disabled no-op/no-POST, /v1 payload incl. proxy-iff-set,
+solution parse (HTML/cookies/UA), per-host cache skips a 2nd POST, POST-raises→None-one-WARNING,
+non-ok-status→None), CodeRabbit clean (0 findings, code + compose infra).
+
+**Next:** nothing queued. Deferred: route getcomics **search** (`comic_search/`) through `cf_solver` if it
+starts getting gated; proxy rotation if a single egress IP gets banned.

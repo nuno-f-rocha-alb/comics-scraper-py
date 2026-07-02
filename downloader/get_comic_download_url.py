@@ -3,6 +3,7 @@ import re
 import time
 import requests
 from bs4 import BeautifulSoup
+from downloader import cf_solver
 
 # Mirrors we can convert to a direct download URL
 _SUPPORTED_MIRRORS = ["PIXELDRAIN"]
@@ -45,18 +46,28 @@ def get_comic_download_url(comic_url):
     clients and are skipped.
     """
     time.sleep(2)
-    response = requests.get(comic_url, headers=HEADERS, timeout=15)
 
-    if response.status_code == 429:
-        logging.warning(f"Rate limited (429) fetching {comic_url}. Waiting 30s before retrying...")
-        time.sleep(30)
+    if cf_solver._enabled():
+        # Route the page fetch through FlareSolverr so a CF "are you human" gate is
+        # solved by a headless browser; clearance is cached for the later download.
+        html = cf_solver.get_page(comic_url)
+        if not html:
+            logging.warning(f"Could not fetch {comic_url} via FlareSolverr (skipping, retry next run).")
+            return None
+    else:
         response = requests.get(comic_url, headers=HEADERS, timeout=15)
 
-    if response.status_code != 200:
-        logging.warning(f"Unexpected HTTP {response.status_code} for {comic_url}.")
-        return None
+        if response.status_code == 429:
+            logging.warning(f"Rate limited (429) fetching {comic_url}. Waiting 30s before retrying...")
+            time.sleep(30)
+            response = requests.get(comic_url, headers=HEADERS, timeout=15)
 
-    soup = BeautifulSoup(response.text, "html.parser")
+        if response.status_code != 200:
+            logging.warning(f"Unexpected HTTP {response.status_code} for {comic_url}.")
+            return None
+        html = response.text
+
+    soup = BeautifulSoup(html, "html.parser")
 
     # Try the main download button (handles both old redirect and new direct links)
     download_link = soup.find("a", title="DOWNLOAD NOW") or soup.find("a", title="Download Now")
@@ -85,8 +96,7 @@ def get_comic_download_url(comic_url):
         )
     else:
         logging.warning(
-            f"No downloader link found for {comic_url}. "
-            f"(HTTP {response.status_code}, page size {len(response.text)} bytes)"
+            f"No downloader link found for {comic_url}. (page size {len(html)} bytes)"
         )
 
     return None
