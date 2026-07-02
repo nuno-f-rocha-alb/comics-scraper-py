@@ -234,7 +234,10 @@ prunes all stale rows on an empty/transient fetch → wipes a series' cache (dat
 per CLAUDE.md's documented intent; `downloader/test_issue_format.py` duplicates prod format logic instead
 of importing it.
 
-**Next:** download-staging unit (still spec'd, not yet built).
+**Next:** nothing queued. (The §5 "Next: download-staging" is done — shipped in
+`util.staging_dir()`/`install_to_library()` + `web/worker.py`, see CLAUDE.md §6. Small deferred
+backlog remains: `_wrapped_metron_nightly` `only_active` thread-through, `downloader/test_issue_format.py`
+importing prod `format_issue`.)
 
 ## §7 — Guard Metron issue-cache prune against empty fetch (`flow/metron-cache-prune-guard`)
 
@@ -248,4 +251,7 @@ that already protects `Series.total_issues`).
 **Gate:** 88 pytest (+1 — `test_empty_fetch_does_not_wipe_cache`: seeds a cache, forces a fetch returning
 `[]`, asserts rows survive), CodeRabbit clean (0 findings).
 
-**Next:** download-staging unit (still spec'd, not yet built).
+**Next:** nothing queued. (The §5 "Next: download-staging" is done — shipped in
+`util.staging_dir()`/`install_to_library()` + `web/worker.py`, see CLAUDE.md §6. Small deferred
+backlog remains: `_wrapped_metron_nightly` `only_active` thread-through, `downloader/test_issue_format.py`
+importing prod `format_issue`.)
