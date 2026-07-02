@@ -229,8 +229,23 @@ CodeRabbit clean on the diff. Updated `test_scan.py` which had *encoded the `#1.
 behaviour*.
 
 **Backlog surfaced (pre-existing, deferred to tasks):** Metron issue-cache sync (`web/app.py` ~442-531)
-prunes all stale rows on an empty/transient fetch → wipes a series' cache (data-loss guard needed);
-`_wrapped_metron_nightly` (`web/scheduler.py`) may not thread `only_active=True` per CLAUDE.md's documented
-intent; `downloader/test_issue_format.py` duplicates prod format logic instead of importing it.
+prunes all stale rows on an empty/transient fetch → wipes a series' cache (data-loss guard needed —
+**fixed in §7 below**); `_wrapped_metron_nightly` (`web/scheduler.py`) may not thread `only_active=True`
+per CLAUDE.md's documented intent; `downloader/test_issue_format.py` duplicates prod format logic instead
+of importing it.
+
+**Next:** download-staging unit (still spec'd, not yet built).
+
+## §7 — Guard Metron issue-cache prune against empty fetch (`flow/metron-cache-prune-guard`)
+
+Closes the data-loss guard flagged in §6's backlog. `_get_or_fetch_metron_issues` computed
+`stale_ids = existing - seen` and deleted them unconditionally. On an empty/partial Metron response
+(transient API hiccup, rate-limit returning `{}`), `seen_ids` is empty → *every* cached row is "stale" →
+the whole series' issue cache gets wiped. One-line guard: `if stale_ids and seen_ids:` — treat "fetched
+nothing but had a cache" as transient and skip the prune (same rationale as the adjacent `new_total` guard
+that already protects `Series.total_issues`).
+
+**Gate:** 88 pytest (+1 — `test_empty_fetch_does_not_wipe_cache`: seeds a cache, forces a fetch returning
+`[]`, asserts rows survive), CodeRabbit clean (0 findings).
 
 **Next:** download-staging unit (still spec'd, not yet built).
